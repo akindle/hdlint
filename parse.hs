@@ -1,6 +1,7 @@
 module Parse where
 
 import System.Environment
+import System.IO
 import Data.Char
 import Data.Maybe
 import Control.Monad
@@ -9,24 +10,28 @@ import Text.Megaparsec.Expr
 import Text.Megaparsec.String
 import qualified Text.Megaparsec.Lexer as L
 
-file = endBy csvFile eof
-csvFile = endBy line eol'
-line = sepBy cell (char ',')
-cell = many (noneOf ",\n\r") 
-eol' =      try (string "\n\r")  
-        <|> try (string "\r\n")
-        <|> string "\r"
-        <|> string "\n"
-        <?> "end of line"
+--file = endBy csvFile eof
+--csvFile = endBy line eol'
+--line = sepBy cell (char ',')
+--cell = many (noneOf ",\n\r") 
+--eol' =      try (string "\n\r")  
+--        <|> try (string "\r\n")
+--        <|> string "\r"
+--        <|> string "\n"
+--        <?> "end of line"
 
---main :: IO ()
---main = do
-    --args <- getArgs
-    --parseInput <- return $ args !! 0
-    --parseCSV parseInput
+main :: IO ()
+main = do
+    handle <- openFile "hello.v" ReadMode
+    contents <- hGetContents handle
+    let parsed = parseCSV "hello.v" contents
+    case parsed of
+        Left err -> putStrLn $ show err
+        Right o -> putStrLn $ show o
+    hClose handle
 
-parseCSV :: String -> Either ParseError [[[String]]]
-parseCSV = parse file "(unknown)" 
+parseCSV :: String -> String -> Either ParseError [[Statement]]
+parseCSV = parse parser 
 
 sc :: Parser ()
 sc = L.space (void spaceChar) lineComment blockComment
@@ -89,16 +94,20 @@ registers =  (:) <$> register <*> many register' <* semicolon
 register' :: Parser Statement
 register' =
     do  comma
-        size <- range
+        size <- optional range
         name <- identifier
-        return $ Reg name size
+        additionalSizes <- many range
+        let actualSize = fromMaybe (Range "0" "0") size
+        return $ Reg name actualSize
 
 register :: Parser Statement
 register =
     do  rword "reg"
-        size <- range
+        size <- optional range
         name <- identifier
-        return $ Reg name size
+        additionalSizes <- many range
+        let actualSize = fromMaybe (Range "0" "0") size
+        return $ Reg name actualSize
 
 data Range = Range String String deriving (Show, Eq)
 
@@ -136,7 +145,7 @@ numeric =
     do  bits <- optional numericSize
         signed <- optional $ char' 's'
         mode <- optional letterChar
-        value <- many alphaNumChar
+        value <- many $ oneOf validHex
         sc
         let b = read $ fromMaybe "32" bits :: Int
         let radix = fromMaybe 'd' mode
@@ -146,14 +155,10 @@ numeric =
             Right b -> return b
 
 createNumber :: Char -> Int -> String -> Either String VerilogNumeric
-createNumber a b c = case a of
-    'h' -> validateNumber $ Hex b c
+createNumber a b c = case toUpper a of
     'H' -> validateNumber $ Hex b c
-    'b' -> validateNumber $ Bin b c
     'B' -> validateNumber $ Bin b c
-    'o' -> validateNumber $ Oct b c
     'O' -> validateNumber $ Oct b c
-    'd' -> validateNumber $ Dec b c
     'D' -> validateNumber $ Dec b c
     _ -> Left $ show a ++ " is not a legal numeric radix"
 
