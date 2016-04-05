@@ -1,5 +1,6 @@
 module Parse where
 
+import System.Environment
 import Data.Char
 import Data.Maybe
 import Control.Monad
@@ -17,6 +18,12 @@ eol' =      try (string "\n\r")
         <|> string "\r"
         <|> string "\n"
         <?> "end of line"
+
+--main :: IO ()
+--main = do
+    --args <- getArgs
+    --parseInput <- return $ args !! 0
+    --parseCSV parseInput
 
 parseCSV :: String -> Either ParseError [[[String]]]
 parseCSV = parse file "(unknown)" 
@@ -68,12 +75,13 @@ statement :: Parser [Statement]
 statement = localparams <|> registers <|> ignored
 
 ignored :: Parser [Statement]
-ignored = (:) <$> ignorable <*> many ignorable <* sc
+ignored = ignorable <* sc
 
-ignorable :: Parser Statement
+ignorable :: Parser [Statement]
 ignorable = 
-    do  noneOf ";\r\n"
-        return Ignore
+    do  some $ noneOf ";\r\n"
+        optional semicolon
+        return [Ignore]
 
 registers :: Parser [Statement]
 registers =  (:) <$> register <*> many register' <* semicolon
