@@ -1,6 +1,7 @@
 module Parse where
 
 import Data.Char
+import Data.Maybe
 import Control.Monad
 import Text.Megaparsec
 import Text.Megaparsec.Expr
@@ -18,7 +19,7 @@ eol' =      try (string "\n\r")
         <?> "end of line"
 
 parseCSV :: String -> Either ParseError [[[String]]]
-parseCSV input = parse file "(unknown)" input
+parseCSV = parse file "(unknown)" 
 
 sc :: Parser ()
 sc = L.space (void spaceChar) lineComment blockComment
@@ -51,6 +52,7 @@ data Statement = Seq [Statement]
                 | Port String [PortConnection]
                 | Localparam String VerilogNumeric
                 | Reg String Range
+                | Ignore
                 deriving (Show, Eq)
 
 rword :: String -> Parser ()
@@ -63,7 +65,15 @@ parser :: Parser [[Statement]]
 parser = sc *> many statement <* eof
 
 statement :: Parser [Statement]
-statement = localparams <|> registers
+statement = localparams <|> registers <|> ignored
+
+ignored :: Parser [Statement]
+ignored = (:) <$> ignorable <*> many ignorable <* sc
+
+ignorable :: Parser Statement
+ignorable = 
+    do  noneOf ";\r\n"
+        return Ignore
 
 registers :: Parser [Statement]
 registers =  (:) <$> register <*> many register' <* semicolon
@@ -109,6 +119,50 @@ data Literal = Named String | Numeric VerilogNumeric deriving (Show, Eq)
 -- a previously-defined localparam (ie an identifier)
 --literal :: Parser Literal
 --literal = identifier <|> numeric
+numericSize :: Parser String
+numericSize = try $ many digitChar <* char '\''
+
+data VerilogNumeric = Hex Int String | Oct Int String | Bin Int String | Dec Int String deriving (Show, Eq)
+numeric :: Parser VerilogNumeric
+numeric =
+    do  bits <- optional numericSize
+        signed <- optional $ char' 's'
+        mode <- optional letterChar
+        value <- many alphaNumChar
+        sc
+        let b = read $ fromMaybe "32" bits :: Int
+        let radix = fromMaybe 'd' mode
+        let res = createNumber radix b value
+        case res of
+            Left a -> fail a
+            Right b -> return b
+
+createNumber :: Char -> Int -> String -> Either String VerilogNumeric
+createNumber a b c = case a of
+    'h' -> validateNumber $ Hex b c
+    'H' -> validateNumber $ Hex b c
+    'b' -> validateNumber $ Bin b c
+    'B' -> validateNumber $ Bin b c
+    'o' -> validateNumber $ Oct b c
+    'O' -> validateNumber $ Oct b c
+    'd' -> validateNumber $ Dec b c
+    'D' -> validateNumber $ Dec b c
+    _ -> Left $ show a ++ " is not a legal numeric radix"
+
+
+validateNumber :: VerilogNumeric -> Either String VerilogNumeric 
+validateNumber (Hex a b) = if all (`elem` validHex) b then Right $ Hex a b else Left $ "invalid hex character in " ++ show b
+validateNumber (Bin a b) = if all (`elem` validBin) b then Right $ Bin a b else Left $ "invalid hex character in " ++ show b
+validateNumber (Oct a b) = if all (`elem` validOct) b then Right $ Oct a b else Left $ "invalid hex character in " ++ show b
+validateNumber (Dec a b) = if all (`elem` validDec) b then Right $ Dec a b else Left $ "invalid hex character in " ++ show b
+
+validHex = ['0'..'9'] ++ ['a'..'f'] ++ ['A'..'F'] ++ validUnknowns ++ validSeparators
+validDec = ['0'..'9'] ++ validSeparators
+validOct = ['0'..'7'] ++ validUnknowns ++ validSeparators
+validBin = ['0', '1'] ++ validUnknowns ++ validSeparators
+
+validSeparators = ['_']
+validUnknowns = ['z', 'Z', 'x', 'X', '?']
 
 range :: Parser Range
 range = 
@@ -143,7 +197,6 @@ localparam =
         paramValue <- numeric
         return $ Localparam paramName paramValue
 
-data VerilogNumeric = Hex Int String | Oct Int String | Bin Int String | Dec Int String deriving (Show, Eq)
 
 numericToInteger :: VerilogNumeric -> Int
 numericToInteger (Hex _ a) = sum . map (\(x, y) -> 16^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
@@ -151,17 +204,3 @@ numericToInteger (Oct _ a) = sum . map (\(x, y) -> 8^x * y) . zip [0..] . revers
 numericToInteger (Bin _ a) = sum . map (\(x, y) -> 2^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
 numericToInteger (Dec _ a) = sum . map (\(x, y) -> 10^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
 
-numeric :: Parser VerilogNumeric
-numeric =
-    do  bits <- many digitChar
-        char '\''
-        mode <- letterChar
-        value <- many hexDigitChar
-        sc
-        let b = read bits
-        case mode of
-            'h' -> return $ Hex b value
-            'b' -> return $ Bin b value
-            'o' -> return $ Oct b value
-            'd' -> return $ Dec b value
-            _ -> fail $ show mode ++ " is not a legal numeric constant identifier"
