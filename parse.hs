@@ -164,10 +164,10 @@ createNumber a b c = case toUpper a of
 
 
 validateNumber :: VerilogNumeric -> Either String VerilogNumeric 
-validateNumber (Hex a b) = if all (`elem` validHex) b then Right $ Hex a b else Left $ "invalid hex character in " ++ show b
-validateNumber (Bin a b) = if all (`elem` validBin) b then Right $ Bin a b else Left $ "invalid hex character in " ++ show b
-validateNumber (Oct a b) = if all (`elem` validOct) b then Right $ Oct a b else Left $ "invalid hex character in " ++ show b
-validateNumber (Dec a b) = if all (`elem` validDec) b then Right $ Dec a b else Left $ "invalid hex character in " ++ show b
+validateNumber (Hex a b) = if all (`elem` validHex) b then Right $ Hex a b else Left $ "invalid hex character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validHex) b)
+validateNumber (Bin a b) = if all (`elem` validBin) b then Right $ Bin a b else Left $ "invalid binary character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validBin) b)
+validateNumber (Oct a b) = if all (`elem` validOct) b then Right $ Oct a b else Left $ "invalid decimal character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validOct) b)
+validateNumber (Dec a b) = if all (`elem` validDec) b then Right $ Dec a b else Left $ "invalid octal character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validDec) b)
 
 validHex = ['0'..'9'] ++ ['a'..'f'] ++ ['A'..'F'] ++ validUnknowns ++ validSeparators
 validDec = ['0'..'9'] ++ validSeparators
