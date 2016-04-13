@@ -58,15 +58,65 @@ identifier =  lexeme (p >>= check)
                       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                       else return x
 
-data Width = Width Int Int deriving (Show, Eq)
-data PortConnection = InWire Width String | OutWire Width String | OutReg Width String | Inout Width String deriving (Show, Eq)
+data AExpression = Var String 
+                | Number VerilogNumeric 
+                | Neg AExpression 
+                | ABinary AOp AExpression AExpression 
+                deriving (Eq)
+instance Show AExpression where
+    show (Var a) = show a
+    show (Number a) = show a
+    show (Neg a) = "-" ++ (show a)
+    show (ABinary a b c) = (show b) ++ " " ++ (show a) ++ " " ++ (show c)
+
+data AOp = Add 
+        | Subtract 
+        deriving (Eq)
+instance Show AOp where
+    show Add = "+"
+    show Subtract = "-"
+
+data Range = Range AExpression AExpression deriving (Eq)
+instance Show Range where
+    show (Range a b) = "[" ++ (show a) ++ ":" ++ (show b) ++ "]"
+
+data PortConnection = In Connection
+                    | Out Connection
+                    | Inout Connection
+                    deriving (Show, Eq)
+
+data VerilogNumeric = Hex Int String 
+                    | Oct Int String 
+                    | Bin Int String 
+                    | Dec Int String 
+                    deriving (Eq)
+
+instance Show VerilogNumeric where
+    show (Hex a b) = (bits a) ++ "h" ++ b
+    show (Oct a b) = (bits a) ++ "o" ++ b
+    show (Bin a b) = (bits a) ++ "b" ++ b
+    show (Dec a b) = (bits a) ++ b
+bits a = if(a == 32) then "" else (show a ++ "'")
+
+data Connection = Reg String Range
+                | Wire String Range
+                deriving (Eq)
+instance Show Connection where
+    show (Reg name range) = "reg " ++ (show range) ++ " " ++ name ++ ";"
+    show (Wire name range) = "wire " ++ (show range) ++ " " ++ name ++ ";"
 
 data Statement = Seq [Statement] 
                 | Port String [PortConnection]
                 | Localparam String VerilogNumeric
-                | Reg String Range
+                | Decl Connection
                 | Ignore
-                deriving (Show, Eq)
+                deriving (Eq)
+instance Show Statement where
+    show (Seq [x]) = "hi"
+    show (Port a b) = "module " ++ a ++ "(" ++ show b ++ ")"
+    show (Localparam name number) = "localparam " ++ name ++ " = " ++ (show number) ++ ";"
+    show (Decl a) = show a
+    show _ = ""
 
 rword :: String -> Parser ()
 rword w = string w *> notFollowedBy idChar *> sc
@@ -78,7 +128,39 @@ parser :: Parser [[Statement]]
 parser = sc *> many statement <* eof
 
 statement :: Parser [Statement]
-statement = localparams <|> registers <|> ignored
+statement = localparams <|> registers <|> modules <|> ignored
+
+modules :: Parser [Statement]
+modules = 
+    do  rword "module"
+        name <- identifier
+        symbol "("
+        ports <- port `sepBy` comma
+        return $ [Port name ports]
+
+port :: Parser PortConnection
+port = inPort <|> outPort <|> inOutPort
+
+outPort :: Parser PortConnection
+outPort = 
+    do  rword "output"
+        c <- connection
+        return $ Out c
+
+inOutPort :: Parser PortConnection
+inOutPort = 
+    do  rword "inout"
+        c <- wire' -- no inout registers
+        return $ Inout c
+
+inPort :: Parser PortConnection
+inPort = 
+    do  rword "input"
+        c <- connection
+        return $ In c
+
+connection :: Parser Connection
+connection = register' <|> wire'
 
 ignored :: Parser [Statement]
 ignored = ignorable <* sc
@@ -98,6 +180,24 @@ register =
         name <- identifier
         additionalSizes <- many range
         let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
+        return $ Decl (Reg name actualSize)
+
+wire' :: Parser Connection
+wire' =
+    do  rword "wire"
+        size <- optional range
+        name <- identifier
+        additionalSizes <- many range
+        let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
+        return $ Wire name actualSize
+
+register' :: Parser Connection
+register' =
+    do  rword "reg"
+        size <- optional range
+        name <- identifier
+        additionalSizes <- many range
+        let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
         return $ Reg name actualSize
 
 localparams :: Parser [Statement]
@@ -111,9 +211,6 @@ localparam =
         --let pos = getParserState paramName
         return $ Localparam paramName paramValue
 
-data AExpression = Var String | Number VerilogNumeric | Neg AExpression | ABinary AOp AExpression AExpression deriving (Show, Eq)
-
-data AOp = Add | Subtract deriving (Show, Eq)
 
 aOperators :: [[Operator Parser AExpression]]
 aOperators =
@@ -130,9 +227,6 @@ aTerm = parens aExpression
         <|> Var     <$> identifier
         <|> Number  <$> numeric
 
-data Range = Range AExpression AExpression deriving (Show, Eq)
-
-data Literal = Named String | Numeric VerilogNumeric deriving (Show, Eq)
 
 -- a verilog literal is of the form:
 -- <size>'<signed><radix>value
@@ -160,7 +254,6 @@ data Literal = Named String | Numeric VerilogNumeric deriving (Show, Eq)
 numericSize :: Parser String
 numericSize = try $ many digitChar <* char '\''
 
-data VerilogNumeric = Hex Int String | Oct Int String | Bin Int String | Dec Int String deriving (Show, Eq)
 numeric :: Parser VerilogNumeric
 numeric =
     do  bits <- optional numericSize
