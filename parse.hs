@@ -26,8 +26,8 @@ main = do
     contents <- hGetContents handle
     let parsed = parseCSV "hello.v" contents
     case parsed of
-        Left err -> putStrLn $ show err
-        Right o -> putStrLn $ show o
+        Left err -> print err
+        Right o -> print o
     hClose handle
 
 parseCSV :: String -> String -> Either ParseError [[Statement]]
