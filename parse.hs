@@ -50,9 +50,10 @@ colon      = symbol ":"
 dot        = symbol "."
 eq         = symbol "="
 idChar     = alphaNumChar <|> char '_'
+idHeadChar = letterChar <|> char '_'
 
 identifier =  lexeme (p >>= check)
-    where p         = (:) <$> letterChar <*> many idChar <* sc
+    where p         = (:) <$> idHeadChar <*> many idChar <* sc
           check x   = if x `elem` reservedWords
                       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                       else return x
@@ -89,27 +90,47 @@ ignorable =
         return [Ignore]
 
 registers :: Parser [Statement]
-registers =  (:) <$> register <*> many register' <* semicolon
-
-register' :: Parser Statement
-register' =
-    do  comma
-        size <- optional range
-        name <- identifier
-        additionalSizes <- many range
-        let actualSize = fromMaybe (Range "0" "0") size
-        return $ Reg name actualSize
+registers = rword "reg" *> register `sepBy` comma <* semicolon
 
 register :: Parser Statement
 register =
-    do  rword "reg"
-        size <- optional range
+    do  size <- optional range
         name <- identifier
         additionalSizes <- many range
-        let actualSize = fromMaybe (Range "0" "0") size
+        let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
         return $ Reg name actualSize
 
-data Range = Range String String deriving (Show, Eq)
+localparams :: Parser [Statement]
+localparams = rword "localparam" *> localparam `sepBy` comma <* semicolon
+
+localparam :: Parser Statement
+localparam =
+     do paramName <- identifier
+        eq
+        paramValue <- numeric
+        --let pos = getParserState paramName
+        return $ Localparam paramName paramValue
+
+data AExpression = Var String | Number VerilogNumeric | Neg AExpression | ABinary AOp AExpression AExpression deriving (Show, Eq)
+
+data AOp = Add | Subtract deriving (Show, Eq)
+
+aOperators :: [[Operator Parser AExpression]]
+aOperators =
+    [[Prefix (symbol "-" *> pure Neg)],
+     [InfixL (symbol "+" *> pure (ABinary Add)),
+      InfixL (symbol "-" *> pure (ABinary Subtract)) ]
+    ]
+
+aExpression :: Parser AExpression
+aExpression = makeExprParser aTerm aOperators
+
+aTerm :: Parser AExpression
+aTerm = parens aExpression
+        <|> Var     <$> identifier
+        <|> Number  <$> numeric
+
+data Range = Range AExpression AExpression deriving (Show, Eq)
 
 data Literal = Named String | Numeric VerilogNumeric deriving (Show, Eq)
 
@@ -181,34 +202,14 @@ range :: Parser Range
 range = 
     do  symbol "["
         optional sc
-        top <- many idChar
+        top <- aExpression
         optional sc
         colon
         optional sc
-        bottom <- many idChar
+        bottom <- aExpression
         optional sc
         symbol "]"
         return $ Range top bottom
-
-
-localparams :: Parser [Statement]
-localparams = (:) <$> localparam <*> many localparam' <* semicolon
-
-localparam' :: Parser Statement
-localparam' =
-    do  comma 
-        paramName <- identifier
-        eq
-        paramValue <- numeric
-        return $ Localparam paramName paramValue
-
-localparam :: Parser Statement
-localparam =
-     do rword "localparam"
-        paramName <- identifier
-        eq
-        paramValue <- numeric
-        return $ Localparam paramName paramValue
 
 
 numericToInteger :: VerilogNumeric -> Int
