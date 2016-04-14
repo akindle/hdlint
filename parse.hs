@@ -4,6 +4,7 @@ import System.Environment
 import System.IO
 import Data.Char
 import Data.Maybe
+import Data.List
 import Control.Monad
 import Text.Megaparsec
 import Text.Megaparsec.Expr
@@ -25,10 +26,33 @@ main = do
     handle <- openFile "hello.v" ReadMode
     contents <- hGetContents handle
     let parsed = parseCSV "hello.v" contents
+    let identifiers = filter (\a -> isDecl a || isLocalparam a) . flatten
+    let uniqueIdentifiers = nub . identifiers
+    let conflicts a = (identifiers a) \\ (uniqueIdentifiers a)
+    let allMatches a = (identifiers a) `intersect` (conflicts a)
     case parsed of
         Left err -> print err
-        Right o -> print o
+        Right o -> print . allMatches $ o
     hClose handle
+
+
+getIdentifier :: Statement -> String
+getIdentifier (Decl (Reg a _)) = a
+getIdentifier (Decl (Wire a _)) = a
+getIdentifier _ = ""
+
+getRight = either (\a -> [[Ignore]]) (\b -> b)
+
+flatten :: [[a]] -> [a]
+flatten (x:xs) = x ++ flatten xs
+flatten [] = []
+
+loadFile :: IO String
+loadFile = do
+    handle <- openFile "hello.v" ReadMode
+    contents <- hGetContents handle
+    return contents
+
 
 parseCSV :: String -> String -> Either ParseError [[Statement]]
 parseCSV = parse parser 
@@ -49,6 +73,7 @@ comma      = symbol ","
 colon      = symbol ":"
 dot        = symbol "."
 eq         = symbol "="
+concEq     = symbol "<="
 idChar     = alphaNumChar <|> char '_'
 idHeadChar = letterChar <|> char '_'
 
@@ -58,7 +83,11 @@ identifier =  lexeme (p >>= check)
                       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                       else return x
 
-data AExpression = Var String 
+data ComplexIdentifier = CId String [Selection] deriving (Eq)
+instance Show ComplexIdentifier where
+    show (CId a b) = a ++ if null b then "" else show b
+
+data AExpression = Var ComplexIdentifier 
                 | Number VerilogNumeric 
                 | Neg AExpression 
                 | ABinary AOp AExpression AExpression 
@@ -71,14 +100,27 @@ instance Show AExpression where
 
 data AOp = Add 
         | Subtract 
+        | Or
+        | And
         deriving (Eq)
 instance Show AOp where
     show Add = "+"
     show Subtract = "-"
+    show Or = "|"
+    show And = "&"
 
 data Range = Range AExpression AExpression deriving (Eq)
 instance Show Range where
     show (Range a b) = "[" ++ show a ++ ":" ++ show b ++ "]"
+
+data Selection = RSel Range
+                | Sel AExpression
+                | ImplicitSelection
+                deriving (Eq)
+instance Show Selection where
+    show (RSel a) = show a
+    show (Sel b) = "[" ++ show b ++ "]"
+    show ImplicitSelection = ""
 
 data PortConnection = In Connection
                     | Out Connection
@@ -98,6 +140,13 @@ instance Show VerilogNumeric where
     show (Dec a b) = bits a ++ b
 bits a = if a == 32 then "" else show a ++ "'"
 
+data Assign = Concurrent String AExpression
+            | Blocking String AExpression
+            deriving (Eq)
+instance Show Assign where
+    show (Concurrent a b) = a ++ " <= " ++ show b ++ ";"
+    show (Blocking a b) = a ++ " = " ++ show b ++ ";"
+
 data Connection = Reg String Range
                 | Wire String Range
                 deriving (Eq)
@@ -109,14 +158,48 @@ data Statement = Seq [Statement]
                 | Port String [PortConnection]
                 | Localparam String VerilogNumeric
                 | Decl Connection
+                | Assignment Assign
                 | Ignore
-                deriving (Eq)
 instance Show Statement where
     show (Seq [x]) = "hi"
-    show (Port a b) = "module " ++ a ++ "(" ++ show b ++ ")"
+    show (Port a b) = "module " ++ a ++ "(" ++ show b ++ ");"
     show (Localparam name number) = "localparam " ++ name ++ " = " ++ show number ++ ";"
     show (Decl a) = show a
+    show (Assignment a) = show a
     show _ = ""
+instance Eq Statement where
+    Decl a == Decl b = duplicateConn a b
+    Port a _ == Port b _ = a == b
+    Localparam a _ == Localparam b _ = a == b
+    Localparam a _ == Decl (Reg b _) = a == b
+    Localparam a _ == Decl (Wire b _) = a == b
+    Decl (Reg b _) == Localparam a _ = a == b
+    Decl (Wire b _) == Localparam a _ = a == b
+    _ == _ = False
+
+duplicateConn :: Connection -> Connection -> Bool
+duplicateConn (Reg a _) (Reg b _) = a == b
+duplicateConn (Reg a _) (Wire b _) = a == b
+duplicateConn (Wire a _) (Reg b _) = a == b
+duplicateConn (Wire a _) (Wire b _) = a == b
+
+
+duplicateDecl :: Statement -> Statement -> Bool
+duplicateDecl (Decl a) (Decl b) = a == b
+duplicateDecl _ _ = False
+
+isDecl :: Statement -> Bool
+isDecl (Decl _) = True
+isDecl _ = False
+
+isLocalparam :: Statement -> Bool
+isLocalparam (Localparam _ _) = True
+isLocalparam _ = False
+
+isPort :: Statement -> Bool
+isPort (Port _ _) = True
+isPort _ = False
+
 
 rword :: String -> Parser ()
 rword w = string w *> notFollowedBy idChar *> sc
@@ -124,11 +207,12 @@ rword w = string w *> notFollowedBy idChar *> sc
 reservedWords :: [String]
 reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always", "module", "endmodule", "input", "output", "inout", "wire", "reg", "integer"]
 
+
 parser :: Parser [[Statement]]
 parser = sc *> many statement <* eof
 
 statement :: Parser [Statement]
-statement = localparams <|> declarations <|> modules <|> ignored
+statement = localparams <|> declarations <|> modules <|> try (wrapStatement assignment) <|> ignored
 
 modules :: Parser [Statement]
 modules = 
@@ -176,6 +260,29 @@ ignorable =
         optional semicolon
         return [Ignore]
 
+wrapStatement a = a >>= \b -> return [b]
+
+assignment :: Parser Statement
+assignment = try (wrap concAssign Assignment) <|> wrap blockAssign Assignment
+
+concAssign :: Parser Assign
+concAssign =
+    do  lvalue <- identifier
+        concEq
+        rvalue <- aExpression
+        semicolon
+        return $ Concurrent lvalue rvalue
+        
+blockAssign :: Parser Assign
+blockAssign =
+    do  optional $ rword "assign"
+        lvalue <- identifier
+        many selection
+        eq
+        rvalue <- aExpression
+        semicolon
+        return $ Blocking lvalue rvalue
+        
 
 localparams :: Parser [Statement]
 localparams = commaSepStatements "localparam" localparam
@@ -187,13 +294,13 @@ localparam =
         paramValue <- numeric
         return $ Localparam paramName paramValue
 
-declaration a = a >>= \b -> return $ Decl b
+wrap a b = a >>= \c -> return $ b c
 
 declarations :: Parser [Statement]
 declarations = registers <|> wires <|> integers
 
 registers :: Parser [Statement]
-registers = commaSepStatements "reg" (declaration register)
+registers = commaSepStatements "reg" (wrap register Decl)
 
 register :: Parser Connection
 register =
@@ -205,7 +312,7 @@ register =
 
 
 integers :: Parser [Statement]
-integers = commaSepStatements "integer" (declaration integer)
+integers = commaSepStatements "integer" (wrap integer Decl)
 
 integer :: Parser Connection
 integer =
@@ -214,7 +321,7 @@ integer =
 
 
 wires :: Parser [Statement]
-wires = commaSepStatements "wire" (declaration wire)
+wires = commaSepStatements "wire" (wrap wire Decl)
 
 wire :: Parser Connection
 wire =
@@ -230,15 +337,25 @@ aOperators :: [[Operator Parser AExpression]]
 aOperators =
     [[Prefix (symbol "-" *> pure Neg)],
      [InfixL (symbol "+" *> pure (ABinary Add)),
-      InfixL (symbol "-" *> pure (ABinary Subtract)) ]
+      InfixL (symbol "-" *> pure (ABinary Subtract)),
+      InfixL (symbol "|" *> pure (ABinary Or)),
+      InfixL (symbol "&" *> pure (ABinary And)) ]
     ]
 
 aExpression :: Parser AExpression
 aExpression = makeExprParser aTerm aOperators
 
+
+cIdentifier :: Parser ComplexIdentifier
+cIdentifier =
+    do  name <- identifier
+        cSel <- optional $ many selection
+        let sel = fromMaybe [ImplicitSelection] cSel
+        return $ CId name sel
+
 aTerm :: Parser AExpression
 aTerm = parens aExpression
-        <|> Var     <$> identifier
+        <|> Var     <$> cIdentifier
         <|> Number  <$> numeric
 
 
@@ -318,6 +435,17 @@ range =
         symbol "]"
         return $ Range top bottom
 
+selection :: Parser Selection
+selection = try (wrap range RSel) <|> selection'
+
+selection' :: Parser Selection
+selection' =
+    do  symbol "["
+        optional sc
+        sel <- aExpression
+        optional sc
+        symbol "]"
+        return $ Sel sel
 
 numericToInteger :: VerilogNumeric -> Int
 numericToInteger (Hex _ a) = sum . map (\(x, y) -> 16^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
