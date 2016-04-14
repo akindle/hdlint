@@ -10,26 +10,16 @@ import Text.Megaparsec
 import Text.Megaparsec.Expr
 import Text.Megaparsec.String
 import qualified Text.Megaparsec.Lexer as L
-
---file = endBy csvFile eof
---csvFile = endBy line eol'
---line = sepBy cell (char ',')
---cell = many (noneOf ",\n\r") 
---eol' =      try (string "\n\r")  
---        <|> try (string "\r\n")
---        <|> string "\r"
---        <|> string "\n"
---        <?> "end of line"
-
+ 
 main :: IO ()
 main = do
     handle <- openFile "hello.v" ReadMode
     contents <- hGetContents handle
     let parsed = parseCSV "hello.v" contents
-    let identifiers = filter (\a -> isDecl a || isLocalparam a) . flatten
+    let identifiers = filter (\a -> isDecl a || isLocalparam a) . concat
     let uniqueIdentifiers = nub . identifiers
-    let conflicts a = (identifiers a) \\ (uniqueIdentifiers a)
-    let allMatches a = (identifiers a) `intersect` (conflicts a)
+    let conflicts a = identifiers a \\ uniqueIdentifiers a
+    let allMatches a = identifiers a `intersect` conflicts a
     case parsed of
         Left err -> print err
         Right o -> print . allMatches $ o
@@ -41,18 +31,9 @@ getIdentifier (Decl (Reg a _)) = a
 getIdentifier (Decl (Wire a _)) = a
 getIdentifier _ = ""
 
-getRight = either (\a -> [[Ignore]]) (\b -> b)
-
-flatten :: [[a]] -> [a]
-flatten (x:xs) = x ++ flatten xs
-flatten [] = []
-
-loadFile :: IO String
-loadFile = do
-    handle <- openFile "hello.v" ReadMode
-    contents <- hGetContents handle
-    return contents
-
+getRight :: Either b [[Statement]] -> [[Statement]]
+getRight = either (const [[Ignore]]) id
+ 
 
 parseCSV :: String -> String -> Either ParseError [[Statement]]
 parseCSV = parse parser 
@@ -302,15 +283,17 @@ declarations = registers <|> wires <|> integers
 registers :: Parser [Statement]
 registers = commaSepStatements "reg" (wrap register Decl)
 
-register :: Parser Connection
-register =
+regLike :: (String -> Range -> r) -> Parser r
+regLike a =
     do  size <- optional range
         name <- identifier
         additionalSizes <- many range
         let actualSize = fromMaybe (rangeConstant 0 0) size
-        return $ Reg name actualSize
-
-
+        return $ a name actualSize
+        
+register :: Parser Connection
+register = regLike Reg
+        
 integers :: Parser [Statement]
 integers = commaSepStatements "integer" (wrap integer Decl)
 
@@ -324,12 +307,7 @@ wires :: Parser [Statement]
 wires = commaSepStatements "wire" (wrap wire Decl)
 
 wire :: Parser Connection
-wire =
-    do  size <- optional range
-        name <- identifier
-        additionalSizes <- many range
-        let actualSize = fromMaybe (rangeConstant 0 0) size
-        return $ Wire name actualSize
+wire = regLike Wire 
 
 rangeConstant a b = Range (Number (Dec 32 (show a))) (Number (Dec 32 (show b)))
 
