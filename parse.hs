@@ -66,8 +66,8 @@ data AExpression = Var String
 instance Show AExpression where
     show (Var a) = show a
     show (Number a) = show a
-    show (Neg a) = "-" ++ (show a)
-    show (ABinary a b c) = (show b) ++ " " ++ (show a) ++ " " ++ (show c)
+    show (Neg a) = "-" ++ show a
+    show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
 
 data AOp = Add 
         | Subtract 
@@ -78,7 +78,7 @@ instance Show AOp where
 
 data Range = Range AExpression AExpression deriving (Eq)
 instance Show Range where
-    show (Range a b) = "[" ++ (show a) ++ ":" ++ (show b) ++ "]"
+    show (Range a b) = "[" ++ show a ++ ":" ++ show b ++ "]"
 
 data PortConnection = In Connection
                     | Out Connection
@@ -92,18 +92,18 @@ data VerilogNumeric = Hex Int String
                     deriving (Eq)
 
 instance Show VerilogNumeric where
-    show (Hex a b) = (bits a) ++ "h" ++ b
-    show (Oct a b) = (bits a) ++ "o" ++ b
-    show (Bin a b) = (bits a) ++ "b" ++ b
-    show (Dec a b) = (bits a) ++ b
-bits a = if(a == 32) then "" else (show a ++ "'")
+    show (Hex a b) = bits a ++ "h" ++ b
+    show (Oct a b) = bits a ++ "o" ++ b
+    show (Bin a b) = bits a ++ "b" ++ b
+    show (Dec a b) = bits a ++ b
+bits a = if a == 32 then "" else show a ++ "'"
 
 data Connection = Reg String Range
                 | Wire String Range
                 deriving (Eq)
 instance Show Connection where
-    show (Reg name range) = "reg " ++ (show range) ++ " " ++ name ++ ";"
-    show (Wire name range) = "wire " ++ (show range) ++ " " ++ name ++ ";"
+    show (Reg name range) = "reg " ++ show range ++ " " ++ name ++ ";"
+    show (Wire name range) = "wire " ++ show range ++ " " ++ name ++ ";"
 
 data Statement = Seq [Statement] 
                 | Port String [PortConnection]
@@ -114,7 +114,7 @@ data Statement = Seq [Statement]
 instance Show Statement where
     show (Seq [x]) = "hi"
     show (Port a b) = "module " ++ a ++ "(" ++ show b ++ ")"
-    show (Localparam name number) = "localparam " ++ name ++ " = " ++ (show number) ++ ";"
+    show (Localparam name number) = "localparam " ++ name ++ " = " ++ show number ++ ";"
     show (Decl a) = show a
     show _ = ""
 
@@ -122,13 +122,13 @@ rword :: String -> Parser ()
 rword w = string w *> notFollowedBy idChar *> sc
 
 reservedWords :: [String]
-reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always"]
+reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always", "module", "endmodule", "input", "output", "inout", "wire", "reg", "integer"]
 
 parser :: Parser [[Statement]]
 parser = sc *> many statement <* eof
 
 statement :: Parser [Statement]
-statement = localparams <|> registers <|> modules <|> ignored
+statement = localparams <|> declarations <|> modules <|> ignored
 
 modules :: Parser [Statement]
 modules = 
@@ -136,7 +136,9 @@ modules =
         name <- identifier
         symbol "("
         ports <- port `sepBy` comma
-        return $ [Port name ports]
+        symbol ")"
+        semicolon
+        return [Port name ports]
 
 port :: Parser PortConnection
 port = inPort <|> outPort <|> inOutPort
@@ -150,7 +152,7 @@ outPort =
 inOutPort :: Parser PortConnection
 inOutPort = 
     do  rword "inout"
-        c <- wire' -- no inout registers
+        c <- wire -- no inout registers
         return $ Inout c
 
 inPort :: Parser PortConnection
@@ -159,8 +161,11 @@ inPort =
         c <- connection
         return $ In c
 
+commaSepStatements a b = rword a *> b `sepBy` comma <* semicolon
+
 connection :: Parser Connection
-connection = register' <|> wire'
+connection = (rword "reg" >> register) <|> (rword "wire" >> wire)
+
 
 ignored :: Parser [Statement]
 ignored = ignorable <* sc
@@ -171,46 +176,55 @@ ignorable =
         optional semicolon
         return [Ignore]
 
-registers :: Parser [Statement]
-registers = rword "reg" *> register `sepBy` comma <* semicolon
-
-register :: Parser Statement
-register =
-    do  size <- optional range
-        name <- identifier
-        additionalSizes <- many range
-        let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
-        return $ Decl (Reg name actualSize)
-
-wire' :: Parser Connection
-wire' =
-    do  rword "wire"
-        size <- optional range
-        name <- identifier
-        additionalSizes <- many range
-        let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
-        return $ Wire name actualSize
-
-register' :: Parser Connection
-register' =
-    do  rword "reg"
-        size <- optional range
-        name <- identifier
-        additionalSizes <- many range
-        let actualSize = fromMaybe (Range (Number (Dec 32 "0")) (Number (Dec 32 "0"))) size
-        return $ Reg name actualSize
 
 localparams :: Parser [Statement]
-localparams = rword "localparam" *> localparam `sepBy` comma <* semicolon
+localparams = commaSepStatements "localparam" localparam
 
 localparam :: Parser Statement
 localparam =
      do paramName <- identifier
         eq
         paramValue <- numeric
-        --let pos = getParserState paramName
         return $ Localparam paramName paramValue
 
+declaration a = a >>= \b -> return $ Decl b
+
+declarations :: Parser [Statement]
+declarations = registers <|> wires <|> integers
+
+registers :: Parser [Statement]
+registers = commaSepStatements "reg" (declaration register)
+
+register :: Parser Connection
+register =
+    do  size <- optional range
+        name <- identifier
+        additionalSizes <- many range
+        let actualSize = fromMaybe (rangeConstant 0 0) size
+        return $ Reg name actualSize
+
+
+integers :: Parser [Statement]
+integers = commaSepStatements "integer" (declaration integer)
+
+integer :: Parser Connection
+integer =
+    do  name <- identifier
+        return $ Reg name $ rangeConstant 31 0
+
+
+wires :: Parser [Statement]
+wires = commaSepStatements "wire" (declaration wire)
+
+wire :: Parser Connection
+wire =
+    do  size <- optional range
+        name <- identifier
+        additionalSizes <- many range
+        let actualSize = fromMaybe (rangeConstant 0 0) size
+        return $ Wire name actualSize
+
+rangeConstant a b = Range (Number (Dec 32 (show a))) (Number (Dec 32 (show b)))
 
 aOperators :: [[Operator Parser AExpression]]
 aOperators =
