@@ -194,14 +194,10 @@ validUnknowns = ['z', 'Z', 'x', 'X', '?']
 
 range :: Parser Range
 range = 
-    do  symbol "["
-        optional sc
-        top <- aExpression
-        optional sc
-        colon
-        optional sc
-        bottom <- aExpression
-        optional sc
+    do  symbol "[" 
+        top <- aExpression 
+        colon 
+        bottom <- aExpression 
         symbol "]"
         return $ Range top bottom
 
@@ -210,10 +206,8 @@ selection = try (wrap range RSel) <|> selection'
 
 selection' :: Parser Selection
 selection' =
-    do  symbol "["
-        optional sc
-        sel <- aExpression
-        optional sc
+    do  symbol "[" 
+        sel <- aExpression 
         symbol "]"
         return $ Sel sel
 
