@@ -92,21 +92,25 @@ aExpression :: Parser AExpression
 aExpression = makeExprParser aTerm aOperators
 
 -- note: this probably does not work
+-- because this is not really how the angle brackets in a replication work
+-- this will almost certainly break on nested replication/concatenation operations
 replication :: Parser AExpression
-replication = do  
-    angles
+replication = do
+    symbol "{"
     repCount <- aExpression -- eugh kind of
-    angles
+    symbol "{"
     repExpr <- aExpression
+    symbol "}"
+    symbol "}"
     return $ Replication repCount repExpr
                 
-
 aTerm :: Parser AExpression
 aTerm = parens aExpression
         <|> Var     <$> identifier <*> selection
-        <|> Replication <$> replication
+        <|> replication
         <|> Concat  <$> angles aExpression <* comma *> aExpression
         <|> Number  <$> numeric
+        <|> Ternary <$> aExpression <* symbol "?" *> aExpression <* colon *> aExpression
 
 data AExpression = Var Identifier Selection 
                 | Replication AExpression AExpression
@@ -114,6 +118,7 @@ data AExpression = Var Identifier Selection
                 | Number VerilogNumeric 
                 | Unary UOp AExpression
                 | ABinary AOp AExpression AExpression 
+                | Ternary AExpression AExpression AExpression
                 deriving (Eq)
 instance Show AExpression where
     show (Var a b) = show a ++ show b
