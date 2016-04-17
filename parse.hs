@@ -10,6 +10,8 @@ import Text.Megaparsec
 import Text.Megaparsec.Expr
 import Text.Megaparsec.String
 import qualified Text.Megaparsec.Lexer as L
+
+
  
 main :: IO ()
 main = do
@@ -26,10 +28,9 @@ main = do
     hClose handle
 
 
-getIdentifier :: Statement -> String
+getIdentifier :: Statement -> Identifier
 getIdentifier (Decl (Reg a _)) = a
 getIdentifier (Decl (Wire a _)) = a
-getIdentifier _ = ""
 
 getRight :: Either b [[Statement]] -> [[Statement]]
 getRight = either (const [[Ignore]]) id
@@ -51,30 +52,52 @@ brackets   = between (symbol "[") (symbol "]")
 angles     = between (symbol "{") (symbol "}")
 semicolon  = symbol ";"
 comma      = symbol ","
-colon      = symbol ":"
-dot        = symbol "."
+colon      = symbol ":" 
 eq         = symbol "="
 concEq     = symbol "<="
-idChar     = alphaNumChar <|> char '_'
+idChar     = alphaNumChar <|> char '_' <|> char '$'
 idHeadChar = letterChar <|> char '_'
 
+-- parsed data types know their location. for a given element, their location is the start of the element
+-- for now, we are only handling unescaped identifiers. escaped identifiers are some horrifying trash
+data Identifier = Identifier String SourcePos deriving (Show, Eq)
+identifier :: Parser Identifier
 identifier =  lexeme (p >>= check)
-    where p         = (:) <$> idHeadChar <*> many idChar <* sc
-          check x   = if x `elem` reservedWords
+    where p         =
+                    do 
+                        location <- getPosition
+                        head <- idHeadChar
+                        body <- many idChar                        
+                        sc
+                        return $ Identifier (head : body) location
+          check (Identifier x y)   = if x `elem` reservedWords
                       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
-                      else return x
+                      else return $ Identifier x y
 
-data ComplexIdentifier = CId String [Selection] deriving (Eq)
-instance Show ComplexIdentifier where
-    show (CId a b) = a ++ if null b then "" else show b
-
-data AExpression = Var ComplexIdentifier 
+    
+    -- how do we cover concatenation with this? it's a bit 
+    -- like an infix operator (,) but requires being in {}
+    -- keep in mind replication ops { #{}}
+    -- this covers boolean expressions as well (eg x == 5)
+    -- syntactically-valid boolExprs ie if(12'd13) is legal in verilog
+    -- according to a few internet sources (ie http://web.engr.oregonstate.edu/~traylor/ece474/lecture_verilog/beamer/verilog_operators.pdf)
+    -- boolean operators reduce to [1'b0, 1'b1]; looks like zero -> false, nonzero -> true
+    -- so "Expr" can safely be used for conditional parsing
+    -- that is, all if() statements are of the form if(Expr)
+    -- and boolean operators are just another infix operator
+    -- basically just read the above link a lot while implementing and also some other sources    
+--data Expr = Variable -- or really just any named thing (reg, wire, localparam, parameter, etc)
+  --          | Number -- any numeric constant
+    --        | Neg Expr -- negation of any other sort of expression
+      --      | Operation Operator Expr Expr          
+            
+data AExpression = Var Identifier Selection 
                 | Number VerilogNumeric 
                 | Neg AExpression 
                 | ABinary AOp AExpression AExpression 
                 deriving (Eq)
 instance Show AExpression where
-    show (Var a) = show a
+    show (Var a b) = show a ++ show b
     show (Number a) = show a
     show (Neg a) = "-" ++ show a
     show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
@@ -121,30 +144,30 @@ instance Show VerilogNumeric where
     show (Dec a b) = bits a ++ b
 bits a = if a == 32 then "" else show a ++ "'"
 
-data Assign = Concurrent String AExpression
-            | Blocking String AExpression
+data Assign = Concurrent Identifier AExpression
+            | Blocking Identifier AExpression
             deriving (Eq)
 instance Show Assign where
-    show (Concurrent a b) = a ++ " <= " ++ show b ++ ";"
-    show (Blocking a b) = a ++ " = " ++ show b ++ ";"
+    show (Concurrent a b) = show a ++ " <= " ++ show b ++ ";"
+    show (Blocking a b) = show a ++ " = " ++ show b ++ ";"
 
-data Connection = Reg String Range
-                | Wire String Range
+data Connection = Reg Identifier Range
+                | Wire Identifier Range
                 deriving (Eq)
 instance Show Connection where
-    show (Reg name range) = "reg " ++ show range ++ " " ++ name ++ ";"
-    show (Wire name range) = "wire " ++ show range ++ " " ++ name ++ ";"
+    show (Reg name range) = "reg " ++ show range ++ " " ++ show name ++ ";"
+    show (Wire name range) = "wire " ++ show range ++ " " ++ show name ++ ";"
 
 data Statement = Seq [Statement] 
-                | Port String [PortConnection]
-                | Localparam String VerilogNumeric
+                | Port Identifier [PortConnection]
+                | Localparam Identifier VerilogNumeric
                 | Decl Connection
                 | Assignment Assign
                 | Ignore
 instance Show Statement where
     show (Seq [x]) = "hi"
-    show (Port a b) = "module " ++ a ++ "(" ++ show b ++ ");"
-    show (Localparam name number) = "localparam " ++ name ++ " = " ++ show number ++ ";"
+    show (Port a b) = "module " ++ show a ++ "(" ++ show b ++ ");"
+    show (Localparam name number) = "localparam " ++ show name ++ " = " ++ show number ++ ";"
     show (Decl a) = show a
     show (Assignment a) = show a
     show _ = ""
@@ -283,7 +306,7 @@ declarations = registers <|> wires <|> integers
 registers :: Parser [Statement]
 registers = commaSepStatements "reg" (wrap register Decl)
 
-regLike :: (String -> Range -> r) -> Parser r
+regLike :: (Identifier -> Range -> r) -> Parser r
 regLike a =
     do  size <- optional range
         name <- identifier
@@ -324,16 +347,9 @@ aExpression :: Parser AExpression
 aExpression = makeExprParser aTerm aOperators
 
 
-cIdentifier :: Parser ComplexIdentifier
-cIdentifier =
-    do  name <- identifier
-        cSel <- optional $ many selection
-        let sel = fromMaybe [ImplicitSelection] cSel
-        return $ CId name sel
-
 aTerm :: Parser AExpression
 aTerm = parens aExpression
-        <|> Var     <$> cIdentifier
+        <|> Var     <$> identifier <*> selection
         <|> Number  <$> numeric
 
 
