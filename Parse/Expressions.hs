@@ -156,32 +156,33 @@ numericSize = try $ many digitChar <* char '\''
 
 numeric :: Parser VerilogNumeric
 numeric =
-    do  bits <- optional numericSize
+    do  size <- optional numericSize
         signed <- optional $ char' 's'
         mode <- optional letterChar
         value <- many $ oneOf validHex
         sc
-        let b = read $ fromMaybe "32" bits :: Int
+        let b = read $ fromMaybe "32" size :: Int
         let radix = fromMaybe 'd' mode
-        let res = createNumber radix b value
+        let sign = fromMaybe '\0' signed == 's'
+        let res = createNumber radix b value sign
         case res of
             Left a -> fail a
             Right b -> return b
 
-createNumber :: Char -> Int -> String -> Either String VerilogNumeric
-createNumber a b c = case toUpper a of
-    'H' -> validateNumber $ Hex b c
-    'B' -> validateNumber $ Bin b c
-    'O' -> validateNumber $ Oct b c
-    'D' -> validateNumber $ Dec b c
+createNumber :: Char -> Int -> String -> Bool -> Either String VerilogNumeric
+createNumber a b c d = case toUpper a of
+    'H' -> validateNumber $ Hex b c d
+    'B' -> validateNumber $ Bin b c d
+    'O' -> validateNumber $ Oct b c d
+    'D' -> validateNumber $ Dec b c d
     _ -> Left $ show a ++ " is not a legal numeric radix"
 
 
 validateNumber :: VerilogNumeric -> Either String VerilogNumeric 
-validateNumber (Hex a b) = if all (`elem` validHex) b then Right $ Hex a b else Left $ "invalid hex character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validHex) b)
-validateNumber (Bin a b) = if all (`elem` validBin) b then Right $ Bin a b else Left $ "invalid binary character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validBin) b)
-validateNumber (Oct a b) = if all (`elem` validOct) b then Right $ Oct a b else Left $ "invalid decimal character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validOct) b)
-validateNumber (Dec a b) = if all (`elem` validDec) b then Right $ Dec a b else Left $ "invalid octal character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validDec) b)
+validateNumber (Hex a b c) = if all (`elem` validHex) b then Right $ Hex a b c else Left $ "invalid hex character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validHex) b)
+validateNumber (Bin a b c) = if all (`elem` validBin) b then Right $ Bin a b c else Left $ "invalid binary character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validBin) b)
+validateNumber (Oct a b c) = if all (`elem` validOct) b then Right $ Oct a b c else Left $ "invalid decimal character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validOct) b)
+validateNumber (Dec a b c) = if all (`elem` validDec) b then Right $ Dec a b c else Left $ "invalid octal character in " ++ show b ++ " specifically: " ++ show (filter (`notElem` validDec) b)
 
 validHex = ['0'..'9'] ++ ['a'..'f'] ++ ['A'..'F'] ++ validUnknowns ++ validSeparators
 validDec = ['0'..'9'] ++ validSeparators
@@ -217,23 +218,23 @@ selection' =
         return $ Sel sel
 
 numericToInteger :: VerilogNumeric -> Int
-numericToInteger (Hex _ a) = sum . map (\(x, y) -> 16^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
-numericToInteger (Oct _ a) = sum . map (\(x, y) -> 8^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
-numericToInteger (Bin _ a) = sum . map (\(x, y) -> 2^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
-numericToInteger (Dec _ a) = sum . map (\(x, y) -> 10^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a
+numericToInteger (Hex c a b) = if b && (digitToInt (head a) >= 8) then -1 else 1 * (sum . map (\(x, y) -> 16^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a)
+numericToInteger (Oct c a b) = if b && (digitToInt (head a) >= 4) then -1 else 1 * (sum . map (\(x, y) -> 8^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a)
+numericToInteger (Bin c a b) = if b && (digitToInt (head a) >= 1) then -1 else 1 * (sum . map (\(x, y) -> 2^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a)
+numericToInteger (Dec c a b) = if b && (False) then -1 else 1 * (sum . map (\(x, y) -> 10^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a)
 
 
-data VerilogNumeric = Hex Int String 
-                    | Oct Int String 
-                    | Bin Int String 
-                    | Dec Int String 
+data VerilogNumeric = Hex Int String Bool
+                    | Oct Int String Bool
+                    | Bin Int String Bool
+                    | Dec Int String Bool
                     deriving (Eq)
 
 instance Show VerilogNumeric where
-    show (Hex a b) = bits a ++ "h" ++ b
-    show (Oct a b) = bits a ++ "o" ++ b
-    show (Bin a b) = bits a ++ "b" ++ b
-    show (Dec a b) = bits a ++ b
+    show (Hex a b c) = bits a ++ if c then "s" else "" ++ "h" ++ b
+    show (Oct a b c) = bits a ++ if c then "s" else "" ++ "o" ++ b
+    show (Bin a b c) = bits a ++ if c then "s" else "" ++ "b" ++ b
+    show (Dec a b c) = bits a ++ if c then "s" else "" ++ b
 bits a = if a == 32 then "" else show a ++ "'"
 
 data Selection = RSel Range

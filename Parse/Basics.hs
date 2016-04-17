@@ -40,10 +40,10 @@ identifier =  lexeme (p >>= check)
     where p         =
                     do 
                         location <- getPosition
-                        head <- idHeadChar
-                        body <- many idChar                        
+                        x <- idHeadChar
+                        xs <- many idChar                        
                         sc
-                        return $ Identifier (head : body) location
+                        return $ Identifier (x : xs) location
           check (Identifier x y)   = if x `elem` reservedWords
                       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                       else return $ Identifier x y

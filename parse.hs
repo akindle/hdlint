@@ -144,6 +144,7 @@ inPort =
         c <- connection
         return $ In c
 
+commaSepStatements :: String -> Parser a -> Parser [a]
 commaSepStatements a b = rword a *> b `sepBy` comma <* semicolon
 
 connection :: Parser Connection
@@ -159,6 +160,7 @@ ignorable =
         optional semicolon
         return [Ignore]
 
+wrapStatement :: Monad m => m a -> m [a]
 wrapStatement a = a >>= \b -> return [b]
 
 assignment :: Parser Statement
@@ -225,5 +227,6 @@ wires = commaSepStatements "wire" (wrap wire Decl)
 wire :: Parser Connection
 wire = regLike Wire 
 
-rangeConstant a b = Range (Number (Dec 32 (show a))) (Number (Dec 32 (show b)))
+rangeConstant :: (Show a) => a -> a -> Range
+rangeConstant a b = Range (Number (Dec 32 (show a) False)) (Number (Dec 32 (show b) False))
 
