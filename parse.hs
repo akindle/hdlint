@@ -49,7 +49,7 @@ symbol     = L.symbol sc
 
 parens     = between (symbol "(") (symbol ")")
 brackets   = between (symbol "[") (symbol "]")
-angles     = between (symbol "{") (symbol "}")
+angles     = between (symbol "{") (symbol "}") 
 semicolon  = symbol ";"
 comma      = symbol ","
 colon      = symbol ":" 
@@ -85,13 +85,32 @@ identifier =  lexeme (p >>= check)
     -- so "Expr" can safely be used for conditional parsing
     -- that is, all if() statements are of the form if(Expr)
     -- and boolean operators are just another infix operator
-    -- basically just read the above link a lot while implementing and also some other sources    
---data Expr = Variable -- or really just any named thing (reg, wire, localparam, parameter, etc)
-  --          | Number -- any numeric constant
-    --        | Neg Expr -- negation of any other sort of expression
-      --      | Operation Operator Expr Expr          
+    -- basically just read the above link a lot while implementing and also some other sources
             
+
+aExpression :: Parser AExpression
+aExpression = makeExprParser aTerm aOperators
+
+-- note: this probably does not work
+replication :: Parser AExpression
+replication = do  
+    angles
+    repCount <- aExpression -- eugh kind of
+    angles
+    repExpr <- aExpression
+    return $ Replication repCount repExpr
+                
+
+aTerm :: Parser AExpression
+aTerm = parens aExpression
+        <|> Var     <$> identifier <*> selection
+        <|> Replication <$> replication
+        <|> Concat  <$> angles aExpression <* comma *> aExpression
+        <|> Number  <$> numeric
+
 data AExpression = Var Identifier Selection 
+                | Replication AExpression AExpression
+                | Concat AExpression AExpression
                 | Number VerilogNumeric 
                 | Unary UOp AExpression
                 | ABinary AOp AExpression AExpression 
@@ -133,7 +152,8 @@ data AOp =  Add
         | LogicAnd
         | LogicOr
         deriving (Show, Eq) 
-    
+
+-- what a mess of operator declarations
 aOperators :: [[Operator Parser AExpression]]
 aOperators =
     [[Prefix (symbol "~" *> pure (Unary BitNot)), Prefix (symbol "!" *> pure (Unary LogicNot))],
@@ -144,8 +164,7 @@ aOperators =
     Prefix (symbol "~|" *> pure (Unary RedNor)), 
     Prefix (symbol "^" *> pure (Unary RedXor)), 
     Prefix (symbol "~^" *> pure (Unary RedXNor))],
-    
-          
+              
     [Prefix (symbol "-" *> pure (Unary Neg)), Prefix (symbol "+" *> pure (Unary Pos))],
     
     [InfixL (symbol "*" *> pure (ABinary Mult)),InfixL (symbol "%" *> pure (ABinary Mod)),InfixL (symbol "/" *> pure (ABinary Div))],
@@ -163,6 +182,7 @@ aOperators =
     [InfixL (symbol "^" *> pure (ABinary BitXor)), InfixL (symbol "~^" *> pure (ABinary BitXNor)), InfixL (symbol "^~" *> pure (ABinary BitXNor))],
     
      [InfixL (symbol "|" *> pure (ABinary BitOr))],
+     
      [InfixL (symbol "&&" *> pure (ABinary LogicAnd)), InfixL (symbol "||" *> pure (ABinary LogicOr))]
     ]
 
@@ -386,16 +406,6 @@ wire :: Parser Connection
 wire = regLike Wire 
 
 rangeConstant a b = Range (Number (Dec 32 (show a))) (Number (Dec 32 (show b)))
-
-
-aExpression :: Parser AExpression
-aExpression = makeExprParser aTerm aOperators
-
-
-aTerm :: Parser AExpression
-aTerm = parens aExpression
-        <|> Var     <$> identifier <*> selection
-        <|> Number  <$> numeric
 
 
 -- a verilog literal is of the form:
