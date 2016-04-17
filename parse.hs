@@ -93,25 +93,78 @@ identifier =  lexeme (p >>= check)
             
 data AExpression = Var Identifier Selection 
                 | Number VerilogNumeric 
-                | Neg AExpression 
+                | Unary UOp AExpression
                 | ABinary AOp AExpression AExpression 
                 deriving (Eq)
 instance Show AExpression where
     show (Var a b) = show a ++ show b
     show (Number a) = show a
-    show (Neg a) = "-" ++ show a
+    show (Unary a b) = show a ++ show b
     show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
 
-data AOp = Add 
+data UOp = RedAnd 
+        | RedOr 
+        | RedNand 
+        | RedNor
+        | RedXor 
+        | RedXNor
+        | Pos
+        | Neg
+        | BitNot
+        | LogicNot
+        deriving (Show, Eq)
+data AOp =  Add 
         | Subtract 
-        | Or
-        | And
-        deriving (Eq)
-instance Show AOp where
-    show Add = "+"
-    show Subtract = "-"
-    show Or = "|"
-    show And = "&"
+        | BitOr
+        | BitAnd 
+        | LShift 
+        | RShift
+        | Mult
+        | Div
+        | Mod
+        | LThan
+        | LEq
+        | GThan
+        | GEq
+        | Equal
+        | NotEqual
+        | BitXor
+        | BitXNor
+        | LogicAnd
+        | LogicOr
+        deriving (Show, Eq) 
+    
+aOperators :: [[Operator Parser AExpression]]
+aOperators =
+    [[Prefix (symbol "~" *> pure (Unary BitNot)), Prefix (symbol "!" *> pure (Unary LogicNot))],
+    
+    [Prefix (symbol "&" *> pure (Unary RedAnd)), 
+    Prefix (symbol "|" *> pure (Unary RedOr)),
+    Prefix (symbol "~&" *> pure (Unary RedNand)),
+    Prefix (symbol "~|" *> pure (Unary RedNor)), 
+    Prefix (symbol "^" *> pure (Unary RedXor)), 
+    Prefix (symbol "~^" *> pure (Unary RedXNor))],
+    
+          
+    [Prefix (symbol "-" *> pure (Unary Neg)), Prefix (symbol "+" *> pure (Unary Pos))],
+    
+    [InfixL (symbol "*" *> pure (ABinary Mult)),InfixL (symbol "%" *> pure (ABinary Mod)),InfixL (symbol "/" *> pure (ABinary Div))],
+    
+    [InfixL (symbol "+" *> pure (ABinary Add)),InfixL (symbol "-" *> pure (ABinary Subtract))],
+    
+    [InfixL (symbol "<<" *> pure (ABinary LShift)), InfixL (symbol ">>" *> pure (ABinary RShift))],
+
+    [InfixL (symbol "<" *> pure (ABinary LThan)), InfixL (symbol "<=" *> pure (ABinary LEq)), InfixL (symbol ">" *> pure (ABinary GThan)), InfixL (symbol ">=" *> pure (ABinary GEq))],
+    
+    [InfixL (symbol "==" *> pure (ABinary Equal)), InfixL (symbol "!=" *> pure (ABinary NotEqual))],
+
+    [InfixL (symbol "&" *> pure (ABinary BitAnd))],
+    
+    [InfixL (symbol "^" *> pure (ABinary BitXor)), InfixL (symbol "~^" *> pure (ABinary BitXNor)), InfixL (symbol "^~" *> pure (ABinary BitXNor))],
+    
+     [InfixL (symbol "|" *> pure (ABinary BitOr))],
+     [InfixL (symbol "&&" *> pure (ABinary LogicAnd)), InfixL (symbol "||" *> pure (ABinary LogicOr))]
+    ]
 
 data Range = Range AExpression AExpression deriving (Eq)
 instance Show Range where
@@ -334,14 +387,6 @@ wire = regLike Wire
 
 rangeConstant a b = Range (Number (Dec 32 (show a))) (Number (Dec 32 (show b)))
 
-aOperators :: [[Operator Parser AExpression]]
-aOperators =
-    [[Prefix (symbol "-" *> pure Neg)],
-     [InfixL (symbol "+" *> pure (ABinary Add)),
-      InfixL (symbol "-" *> pure (ABinary Subtract)),
-      InfixL (symbol "|" *> pure (ABinary Or)),
-      InfixL (symbol "&" *> pure (ABinary And)) ]
-    ]
 
 aExpression :: Parser AExpression
 aExpression = makeExprParser aTerm aOperators
