@@ -27,6 +27,7 @@ comma      = symbol ","
 colon      = symbol ":" 
 eq         = symbol "="
 concEq     = symbol "<="
+at         = symbol "@"
 idChar     = alphaNumChar <|> char '_' <|> char '$'
 idHeadChar = letterChar <|> char '_'
 
