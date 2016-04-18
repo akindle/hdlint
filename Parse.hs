@@ -25,10 +25,24 @@ main = do
     -- let uniqueIdentifiers = nub . identifiers
     -- let conflicts a = identifiers a \\ uniqueIdentifiers a
     -- let allMatches a = identifiers a `intersect` conflicts a
+    let unreferencedIdentifiers a = declaredIdentifiers a \\ referencedIdentifiers a
+    let undeclaredIdentifiers a = nub (referencedIdentifiers a) \\ declaredIdentifiers a
     case parsed of
         Left err -> print err
         Right o -> print o
     hClose handle
+    
+declaredIdentifiers :: [VerilogThing] -> [Maybe Identifier]
+declaredIdentifiers a = map getIdentifier $ filter isDecl a
+
+referencedIdentifiers :: [VerilogThing] -> [Maybe Identifier]
+referencedIdentifiers a = map getIdentifier $ filter isStatement a
+
+isDecl (VDecl _) = True
+isDecl _ = False
+
+isStatement (VStatement _) = True
+isStatement _ = False
 
 parser :: Parser [VerilogThing]
 parser = sc *> many things <* eof
