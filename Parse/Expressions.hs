@@ -48,6 +48,7 @@ aTerm = parens aExpression
         <|> Concat  <$> angles aExpression <* comma *> aExpression
         <|> Number  <$> numeric
         <|> Ternary <$> aExpression <* symbol "?" *> aExpression <* colon *> aExpression
+        
 
 data AExpression = Var Identifier Selection 
                 | Replication AExpression AExpression
@@ -206,7 +207,7 @@ range =
         return $ Range top bottom
 
 selection :: Parser Selection
-selection = try (wrap range RSel) <|> selection'
+selection = try (wrap range RSel) <|> selection' <|> return ImplicitSelection
 
 selection' :: Parser Selection
 selection' =

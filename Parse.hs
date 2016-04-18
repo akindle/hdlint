@@ -15,6 +15,7 @@ import Parse.Basics
 import Parse.Expressions
 import Parse.Declarations
 import Parse.Statements
+import Parse.Modules
  
 main :: IO ()
 main = do
@@ -47,17 +48,20 @@ isStatement _ = False
 parser :: Parser [VerilogThing]
 parser = sc *> many things <* eof
 
-things = vdecl <|> vstatement
+things = vmod <|> vdecl <|> vstatement
 
 data VerilogThing = VStatement Statement
                     | VDecl Declaration
+                    | VMod VModule
                     deriving (Show, Eq)
 instance GetIdentifier VerilogThing where
     getIdentifier (VStatement a) = getIdentifier a
     getIdentifier (VDecl a) = getIdentifier a
+    getIdentifier (VMod a) = getIdentifier a
     
 vdecl = wrap declaration VDecl
 vstatement = wrap statement VStatement
+vmod = wrap parseModule VMod
 
   
 

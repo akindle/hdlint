@@ -38,13 +38,13 @@ instance GetIdentifier Statement where
     getIdentifier _ = Nothing
     
 statement :: Parser Statement
-statement = concurrentAssign 
-            <|> sequentialAssign 
-            <|> process 
+statement =     process 
             <|> begin 
             <|> ifStatement 
             <|> beginCase 
-            <|> caseItem
+            <|> caseItem    
+            <|> concurrentAssign 
+            <|> sequentialAssign 
 
 concurrentAssign :: Parser Statement
 concurrentAssign = do
@@ -69,7 +69,7 @@ process = do
     _ <- rword "always"
     _ <- at
     sensitivity <- parens sensitivityList
-    contents <- begin
+    contents <- statement
     return $ Process sensitivity contents
 
 begin :: Parser Statement
@@ -82,7 +82,7 @@ begin = do
 ifStatement :: Parser Statement
 ifStatement = do
     _ <- rword "if"
-    condition <- parens aExpression
+    condition <- aExpression
     truePart <- statement
     falsePart <- optional $ rword "else" *> statement
     return $ If condition truePart falsePart

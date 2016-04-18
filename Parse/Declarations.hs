@@ -32,6 +32,7 @@ data Declaration = Localparam Identifier AExpression
                 | Parameter Identifier AExpression
                 | Reg Identifier [Range] Direction
                 | Wire Identifier [Range] Direction
+                | Collection [Declaration]
                 deriving (Show, Eq)
                 
 instance GetIdentifier Declaration where
@@ -44,8 +45,10 @@ instance GetIdentifier Declaration where
 declaration :: Parser Declaration
 declaration = localparam
             <|> parameter
-            <|> regLike "wire" Wire
-            <|> regLike "reg" Reg
+            <|> try (regLikeSet "wire" Wire)
+            <|> try (regLikeSet "reg" Reg)
+            <|> try (portLike "wire" Wire)
+            <|> try (portLike "reg" Reg)
             <|> integer
             
 localparam :: Parser Declaration
@@ -57,9 +60,10 @@ parameter = paramLike "parameter" Parameter <|> paramLike "param" Parameter
 paramLike :: String -> (Identifier -> AExpression -> r) -> Parser r
 paramLike a b = do
     _ <- rword a
-    _ <- eq
     name <- identifier
+    _ <- eq
     value <- aExpression
+    _ <- semicolon
     return $ b name value
 
 direction :: Parser Direction
@@ -73,14 +77,30 @@ direction' a b =
         _ <- rword a
         return b
 
-regLike :: String -> (Identifier -> [Range] -> Direction -> r) -> Parser r
-regLike a b = 
+regLikeSet a b =
+    do
+        _ <- optional $ rword a 
+        bs <- regLike' b Internal `sepBy` comma
+        _ <- semicolon
+        return $ Collection bs
+
+regLike' b c =
+    do
+        fRange <- optional range
+        name <- identifier
+        restRange <- many range
+        let rangeHead = fromMaybe (rangeConstant 0 0) fRange
+        let rangeList = rangeHead:restRange
+        return $ b name rangeList c
+        
+portLike :: String -> (Identifier -> [Range] -> Direction -> r) -> Parser r
+portLike a b = 
     do
     dir <- optional direction
     _ <- rword a
     firstRange <- optional range
     name <- identifier
-    restRange <- many range
+    restRange <- many range 
     let rangeHead = fromMaybe (rangeConstant 0 0) firstRange
     let rangeList = rangeHead:restRange 
     let dirResult = fromMaybe Internal dir
@@ -93,6 +113,7 @@ integer = do
     _ <- rword "integer"
     name <- identifier
     vector <- many range
+    _ <- semicolon
     let rangeList = rangeConstant 31 0 :vector
     let dirResult = fromMaybe Internal dir
     return $ Reg name rangeList dirResult
