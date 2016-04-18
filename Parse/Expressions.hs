@@ -243,3 +243,7 @@ instance Show Selection where
 data Range = Range AExpression AExpression deriving (Eq)
 instance Show Range where
     show (Range a b) = "[" ++ show a ++ ":" ++ show b ++ "]"
+    
+rangeConstant :: (Show a) => a -> a -> Range
+rangeConstant a b = Range (Number (Dec 32 (show a) False)) (Number (Dec 32 (show b) False))
+

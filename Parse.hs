@@ -223,7 +223,3 @@ wires = commaSepStatements "wire" (wrap wire Decl)
 
 wire :: Parser Connection
 wire = regLike Wire 
-
-rangeConstant :: (Show a) => a -> a -> Range
-rangeConstant a b = Range (Number (Dec 32 (show a) False)) (Number (Dec 32 (show b) False))
-
