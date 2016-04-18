@@ -159,10 +159,7 @@ ignorable =
     do  some $ noneOf ";\r\n"
         optional semicolon
         return [Ignore]
-
-wrapStatement :: Monad m => m a -> m [a]
-wrapStatement a = a >>= \b -> return [b]
-
+ 
 assignment :: Parser Statement
 assignment = try (wrap concAssign Assignment) <|> wrap blockAssign Assignment
 

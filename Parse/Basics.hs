@@ -30,7 +30,12 @@ concEq     = symbol "<="
 idChar     = alphaNumChar <|> char '_' <|> char '$'
 idHeadChar = letterChar <|> char '_'
 
+wrap :: Monad m => m a -> (a -> r) -> m r
 wrap a b = a >>= \c -> return $ b c
+
+wrapStatement :: Monad m => m a -> m [a]
+wrapStatement a = a >>= \b -> return [b]
+
 
 -- parsed data types know their location. for a given element, their location is the start of the element
 -- for now, we are only handling unescaped identifiers. escaped identifiers are some horrifying trash
