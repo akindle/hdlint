@@ -18,6 +18,7 @@ import Parse.Expressions
 -- localparams
 -- parameters
 -- regs
+-- integers
 -- wires
 -- inputs
 -- outputs
@@ -33,11 +34,19 @@ data Declaration = Localparam Identifier AExpression
                 | Wire Identifier [Range] Direction
                 deriving (Show, Eq)
                 
+instance GetIdentifier Declaration where
+    getIdentifier (Localparam a _) = Just a
+    getIdentifier (Parameter a _) = Just a
+    getIdentifier (Reg a _ _) = Just a
+    getIdentifier (Wire a _ _) = Just a
+    
+
 declaration :: Parser Declaration
 declaration = localparam
             <|> parameter
             <|> regLike "wire" Wire
             <|> regLike "reg" Reg
+            <|> integer
             
 localparam :: Parser Declaration
 localparam = paramLike "localparam" Localparam
@@ -76,3 +85,14 @@ regLike a b =
     let rangeList = rangeHead:restRange 
     let dirResult = fromMaybe Internal dir
     return $ b name rangeList dirResult
+    
+    -- we're going to treat integers as syntactic sugar for 32-bit registers
+integer :: Parser Declaration
+integer = do
+    dir <- optional direction -- can integers be outputs?
+    _ <- rword "integer"
+    name <- identifier
+    vector <- many range
+    let rangeList = rangeConstant 31 0 :vector
+    let dirResult = fromMaybe Internal dir
+    return $ Reg name rangeList dirResult

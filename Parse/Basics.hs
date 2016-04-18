@@ -54,6 +54,9 @@ identifier =  lexeme (p >>= check)
                       then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                       else return $ Identifier x y
 
+class GetIdentifier a where
+    getIdentifier :: a -> Maybe Identifier
+
 rword :: String -> Parser ()
 rword w = string w *> notFollowedBy idChar *> sc
 

@@ -16,6 +16,13 @@ import Parse.Expressions
 
 data CaseType = Default | X | Z deriving (Eq, Show)
 data Sensitivity = Posedge Identifier | Negedge Identifier | Level Identifier | Wildcard deriving (Eq, Show)
+
+instance GetIdentifier Sensitivity where
+    getIdentifier (Posedge a) = Just a
+    getIdentifier (Negedge a) = Just a
+    getIdentifier (Level a) = Just a
+    getIdentifier _ = Nothing
+    
 data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | SequentialAssign Identifier [Selection] AExpression
                 | Process [Sensitivity] Statement
@@ -25,6 +32,11 @@ data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | Case AExpression Statement
                 deriving (Eq, Show)
                 
+instance GetIdentifier Statement where
+    getIdentifier (ConcurrentAssign a _ _) = Just a
+    getIdentifier (SequentialAssign a _ _) = Just a
+    getIdentifier _ = Nothing
+    
 statement :: Parser Statement
 statement = concurrentAssign 
             <|> sequentialAssign 

@@ -62,6 +62,10 @@ instance Show AExpression where
     show (Number a) = show a
     show (Unary a b) = show a ++ show b
     show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
+    
+instance GetIdentifier AExpression where
+    getIdentifier (Var a _) = Just a
+    getIdentifier _ = Nothing
 
 data UOp = RedAnd 
         | RedOr 
