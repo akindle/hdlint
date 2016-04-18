@@ -15,7 +15,7 @@ import Parse.Basics
 import Parse.Expressions
 
 data CaseType = Default | X | Z deriving (Eq, Show)
-data Sensitivity = Posedge Identifier | Negedge Identifier | Wildcard deriving (Eq, Show)
+data Sensitivity = Posedge Identifier | Negedge Identifier | Level Identifier | Wildcard deriving (Eq, Show)
 data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | SequentialAssign Identifier [Selection] AExpression
                 | Process [Sensitivity] Statement
@@ -103,6 +103,11 @@ sensitivity :: Parser Sensitivity
 sensitivity = wildCard
             <|> edge "posedge" Posedge
             <|> edge "negedge" Negedge 
+            <|> level Level
+level :: (Identifier -> r) -> Parser r
+level a = do
+    name <- identifier
+    return $ a name
 
 edge :: String -> (Identifier -> b) -> Parser b
 edge a b = do
