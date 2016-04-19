@@ -43,20 +43,33 @@ instance GetIdentifier Declaration where
     
 
 declaration :: Parser Declaration
-declaration = localparam
-            <|> parameter
+declaration = try localparam
+            <|> try parameter
             <|> try (regLikeSet "wire" Wire)
             <|> try (regLikeSet "reg" Reg)
             <|> try (portLike "wire" Wire)
             <|> try (portLike "reg" Reg)
-            <|> integer
+            <|> try integer
             
 localparam :: Parser Declaration
-localparam = paramLike "localparam" Localparam
+localparam = paramList "localparam" Localparam
 
 parameter :: Parser Declaration
-parameter = paramLike "parameter" Parameter <|> paramLike "param" Parameter
+parameter = paramList "parameter" Parameter <|> paramList "param" Parameter
 
+paramList a b = do
+    _ <- rword a
+    items <- paramList' b `sepBy` comma
+    _ <- semicolon
+    return $ Collection items
+
+paramList' b = do
+    name <- identifier
+    _ <- eq
+    value <- aExpression
+    return $ b name value
+
+-- this works very poorly for comma separated lists of declarations
 paramLike :: String -> (Identifier -> AExpression -> r) -> Parser r
 paramLike a b = do
     _ <- rword a

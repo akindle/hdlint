@@ -49,10 +49,10 @@ aTerm = parens aExpression
         <|> Number  <$> numeric
         <|> Ternary <$> aExpression <* symbol "?" *> aExpression <* colon *> aExpression
         where sel =
-                do a <- optional selection
-                   return $ fromMaybe ImplicitSelection a
+                do a <- many selection
+                   return a
 
-data AExpression = Var Identifier Selection 
+data AExpression = Var Identifier [Selection] 
                 | Replication AExpression AExpression
                 | Concat AExpression AExpression
                 | Number VerilogNumeric 
@@ -100,6 +100,7 @@ data AOp =  Add
         | BitXNor
         | LogicAnd
         | LogicOr
+        | Assignment
         deriving (Show, Eq) 
 
 -- what a mess of operator declarations
@@ -132,7 +133,9 @@ aOperators =
     
      [InfixL (symbol "|" *> pure (ABinary BitOr))],
      
-     [InfixL (symbol "&&" *> pure (ABinary LogicAnd)), InfixL (symbol "||" *> pure (ABinary LogicOr))]
+     [InfixL (symbol "&&" *> pure (ABinary LogicAnd)), InfixL (symbol "||" *> pure (ABinary LogicOr))],
+
+     [InfixL (symbol "=" *> pure (ABinary Assignment))]
     ]
     
 -- a verilog literal is of the form:

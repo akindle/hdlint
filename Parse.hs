@@ -19,7 +19,7 @@ import Parse.Modules
  
 main :: IO ()
 main = do
-    handle <- openFile "hello.v" ReadMode
+    handle <- openFile "hello2.v" ReadMode
     contents <- hGetContents handle
     let parsed = parse parser "hello.v" contents
     -- let identifiers = filter (\a -> isDecl a || isLocalparam a) . concat

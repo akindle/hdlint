@@ -30,6 +30,7 @@ data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | If {condition :: AExpression, true :: Statement, false :: Maybe Statement} -- else/else if -> via false
                 | CaseSet CaseType AExpression [Statement]
                 | Case AExpression Statement
+                | Forloop AExpression AExpression AExpression Statement
                 deriving (Eq, Show)
                 
 instance GetIdentifier Statement where
@@ -38,13 +39,20 @@ instance GetIdentifier Statement where
     getIdentifier _ = Nothing
     
 statement :: Parser Statement
-statement =     try process 
-            <|> try begin 
-            <|> try ifStatement 
-            <|> try beginCase 
-            <|> try caseItem    
-            <|> try concurrentAssign 
-            <|> try sequentialAssign 
+statement =      process 
+            <|>  begin 
+            <|>  ifStatement 
+            <|>  try continuousAssign
+            <|>  try concurrentAssign 
+            <|>  try sequentialAssign 
+            <|>  forStatement
+            <|>  beginCase 
+            <|>  try caseItem    
+
+continuousAssign :: Parser Statement
+continuousAssign = do
+    _ <- rword "assign"
+    sequentialAssign
 
 concurrentAssign :: Parser Statement
 concurrentAssign = do
@@ -80,6 +88,19 @@ begin = do
     statements <- try $ many statement
     _ <- rword "end"
     return $ Begin statements
+
+forStatement :: Parser Statement
+forStatement = do
+    _ <- rword "for"
+    _ <- symbol "("
+    initial <- aExpression
+    semicolon
+    check <- aExpression
+    semicolon
+    iterator <- aExpression
+    _ <- symbol ")"
+    content <- statement
+    return $ Forloop initial check iterator content
     
 ifStatement :: Parser Statement
 ifStatement = do

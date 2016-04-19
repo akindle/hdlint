@@ -42,17 +42,23 @@ wrapStatement a = a >>= \b -> return [b]
 -- for now, we are only handling unescaped identifiers. escaped identifiers are some horrifying trash
 data Identifier = Identifier String SourcePos deriving (Show, Eq)
 identifier :: Parser Identifier
-identifier =  lexeme (p >>= check)
-    where p         =
-                    do 
-                        location <- getPosition
-                        x <- idHeadChar
-                        xs <- many idChar                        
-                        sc
-                        return $ Identifier (x : xs) location
-          check (Identifier x y)   = if x `elem` reservedWords
-                      then fail $ "keyword " ++ show x ++ " cannot be an identifier"
-                      else return $ Identifier x y
+identifier = try identifier'
+
+idName :: Parser String
+idName = do
+        x <- idHeadChar
+        xs <- many idChar
+        let name = x:xs
+        _ <- if (name `elem` reservedWords) then unexpected ("keyword " ++ show name ++ " cannot be an identifier") else sc
+        return $ x:xs
+
+identifier' :: Parser Identifier
+identifier' =  
+    do 
+        location <- getPosition
+        name <- try idName
+        sc
+        return $ Identifier (name) location
 
 class GetIdentifier a where
     getIdentifier :: a -> Maybe Identifier
@@ -61,4 +67,4 @@ rword :: String -> Parser ()
 rword w = string w *> notFollowedBy idChar *> sc
 
 reservedWords :: [String]
-reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always", "module", "endmodule", "input", "output", "inout", "wire", "reg", "integer"]
+reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always", "module", "endmodule", "input", "output", "inout", "wire", "reg", "integer", "assign"]
