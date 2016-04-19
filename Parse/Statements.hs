@@ -38,13 +38,13 @@ instance GetIdentifier Statement where
     getIdentifier _ = Nothing
     
 statement :: Parser Statement
-statement =     process 
-            <|> begin 
-            <|> ifStatement 
-            <|> beginCase 
-            <|> caseItem    
-            <|> concurrentAssign 
-            <|> sequentialAssign 
+statement =     try process 
+            <|> try begin 
+            <|> try ifStatement 
+            <|> try beginCase 
+            <|> try caseItem    
+            <|> try concurrentAssign 
+            <|> try sequentialAssign 
 
 concurrentAssign :: Parser Statement
 concurrentAssign = do
@@ -72,10 +72,12 @@ process = do
     contents <- statement
     return $ Process sensitivity contents
 
+hello = between (rword "begin") (rword "end")
+
 begin :: Parser Statement
 begin = do
     _ <- rword "begin"
-    statements <- many statement
+    statements <- try $ many statement
     _ <- rword "end"
     return $ Begin statements
     

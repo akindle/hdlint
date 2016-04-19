@@ -43,12 +43,14 @@ replication = do
                 
 aTerm :: Parser AExpression
 aTerm = parens aExpression
-        <|> Var     <$> identifier <*> selection
+        <|> Var     <$> identifier <*> sel
         <|> replication
         <|> Concat  <$> angles aExpression <* comma *> aExpression
         <|> Number  <$> numeric
         <|> Ternary <$> aExpression <* symbol "?" *> aExpression <* colon *> aExpression
-        
+        where sel =
+                do a <- optional selection
+                   return $ fromMaybe ImplicitSelection a
 
 data AExpression = Var Identifier Selection 
                 | Replication AExpression AExpression
@@ -207,7 +209,7 @@ range =
         return $ Range top bottom
 
 selection :: Parser Selection
-selection = try (wrap range RSel) <|> selection' <|> return ImplicitSelection
+selection = try (wrap range RSel) <|> selection'
 
 selection' :: Parser Selection
 selection' =

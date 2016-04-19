@@ -46,22 +46,28 @@ isStatement (VStatement _) = True
 isStatement _ = False
 
 parser :: Parser [VerilogThing]
-parser = sc *> many things <* eof
+parser = sc *> many vmod <* eof
 
-things = vmod <|> vdecl <|> vstatement
+things = try vdecl <|> vstatement
 
 data VerilogThing = VStatement Statement
-                    | VDecl Declaration
-                    | VMod VModule
+                    | VDecl Declaration 
+                    | VMod VModule [VerilogThing]
                     deriving (Show, Eq)
 instance GetIdentifier VerilogThing where
     getIdentifier (VStatement a) = getIdentifier a
     getIdentifier (VDecl a) = getIdentifier a
-    getIdentifier (VMod a) = getIdentifier a
+    getIdentifier (VMod a b) = getIdentifier a
     
+vmod = 
+    do
+    a <- parseModule
+    b <- many things
+    _ <- rword "endmodule"
+    return $ VMod a b
 vdecl = wrap declaration VDecl
 vstatement = wrap statement VStatement
-vmod = wrap parseModule VMod
+--vmod = wrap parseModule VMod
 
   
 
