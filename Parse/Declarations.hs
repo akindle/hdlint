@@ -32,26 +32,49 @@ data Declaration = Localparam Identifier AExpression
                 | Parameter Identifier AExpression
                 | Reg Identifier [Range] Direction
                 | Wire Identifier [Range] Direction
+                | Ambiguous Identifier [Range] Direction
                 | Collection [Declaration]
                 | Genvar Identifier
                 deriving (Show, Eq)
                 
-instance GetIdentifier Declaration where
-    getIdentifier (Localparam a _) = Just a
-    getIdentifier (Parameter a _) = Just a
-    getIdentifier (Reg a _ _) = Just a
-    getIdentifier (Wire a _ _) = Just a
+instance GetIdentifiers Declaration where
+    getIdentifiers (Localparam a b) = [a] ++ getIdentifiers b
+    getIdentifiers (Parameter a b) = [a] ++ getIdentifiers b
+    getIdentifiers (Reg a b _) = [a] ++ concatMap getIdentifiers b
+    getIdentifiers (Wire a b _) = [a] ++ concatMap getIdentifiers b
+    getIdentifiers (Collection a) = concatMap getIdentifiers a
+    getIdentifiers (Genvar a) = [a]
+    getIdentifiers _ = []
+
+    getIdentifierDeclarations (Localparam a _) = [a]
+    getIdentifierDeclarations (Parameter a _) = [a]
+    getIdentifierDeclarations (Reg a _ _) = [a] 
+    getIdentifierDeclarations (Wire a _ _) = [a]
+    getIdentifierDeclarations (Ambiguous a _ _) = [a]
+    getIdentifierDeclarations (Collection a) = concatMap getIdentifierDeclarations a
+    getIdentifierDeclarations (Genvar a) = [a]
+    getIdentifierDeclarations _ = []
+
+    getIdentifierUtilizations (Localparam _ a) = getIdentifierUtilizations a
+    getIdentifierUtilizations (Parameter _ a) = getIdentifierUtilizations a
+    getIdentifierUtilizations (Collection a) = concatMap getIdentifierUtilizations a
+    getIdentifierUtilizations (Reg _ a _) = concatMap getIdentifierUtilizations a
+    getIdentifierUtilizations (Wire _ a _) = concatMap getIdentifierUtilizations a
+    getIdentifierUtilizations (Ambiguous _ a _) = concatMap getIdentifierUtilizations a
+    getIdentifierUtilizations _ = []
     
 
 declaration :: Parser Declaration
 declaration = try localparam
             <|> try parameter
+            <|> try moduleParameter
             <|> try (regLikeSet "wire" Wire)
             <|> try (regLikeSet "reg" Reg)
             <|> try (portLike "wire" Wire)
             <|> try (portLike "reg" Reg)
+            <|> try ambiguousPort
             <|> try integer
-            <|> try genvar
+            <|> try genvar <?> "declaration/port"
             
 localparam :: Parser Declaration
 localparam = paramList "localparam" Localparam
@@ -81,6 +104,14 @@ paramLike a b = do
     _ <- semicolon
     return $ b name value
 
+moduleParameter :: Parser Declaration
+moduleParameter = do
+    _ <- rword "parameter"
+    name <- identifier
+    _ <- eq
+    value <- aExpression
+    return $ Parameter name value
+    
 direction :: Parser Direction
 direction = direction' "input" Input
         <|> direction' "output" Output
@@ -107,6 +138,17 @@ regLike' b c =
         let rangeHead = fromMaybe (rangeConstant 0 0) fRange
         let rangeList = rangeHead:restRange
         return $ b name rangeList c
+        
+ambiguousPort :: Parser Declaration
+ambiguousPort = 
+    do
+        dir <- direction
+        firstRange <- optional range
+        name <- identifier
+        restRange <- many range
+        let rangeHead = fromMaybe (rangeConstant 0 0) firstRange
+        let rangeList = rangeHead:restRange  
+        return $ Ambiguous name rangeList dir
         
 portLike :: String -> (Identifier -> [Range] -> Direction -> r) -> Parser r
 portLike a b = 

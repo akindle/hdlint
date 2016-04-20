@@ -5,6 +5,7 @@ import System.IO
 import Data.Char
 import Data.Maybe
 import Data.List
+import Data.Either
 import Control.Monad
 import Text.Megaparsec
 import Text.Megaparsec.Expr
@@ -26,31 +27,36 @@ import Parse.Basics
             
 
 aExpression :: Parser AExpression
-aExpression = makeExprParser aTerm aOperators
+aExpression = makeExprParser aTerm aOperators <?> "expression"
 
 -- note: this probably does not work
 -- because this is not really how the angle brackets in a replication work
 -- this will almost certainly break on nested replication/concatenation operations
 replication :: Parser AExpression
 replication = do
-    symbol "{"
     repCount <- aExpression -- eugh kind of
     symbol "{"
     repExpr <- aExpression
-    symbol "}"
     symbol "}"
     return $ Replication repCount repExpr
                 
 aTerm :: Parser AExpression
 aTerm = parens aExpression
-        <|> Var     <$> identifier <*> sel
-        <|> Concat  <$> angles (aExpression `sepBy` comma)
-        <|> replication
-        <|> Number  <$> numeric
-        <|> Ternary <$> aExpression <* symbol "?" *> aExpression <* colon *> aExpression
+        <|> Str <$> quotes (many $ noneOf "\"")
+        <|> Var <$> identifier <*> sel
+        <|> try vconcat
+        <|> Number  <$> numeric 
         where sel =
-                do a <- many selection
-                   return a
+                do many selection 
+                   
+vconcat :: Parser AExpression
+vconcat = do
+    a <- angles (concatContext `sepBy` comma)
+    return $ Concat a 
+
+concatContext :: Parser AExpression
+concatContext = do
+    try replication <|> aExpression
 
 concatOp :: Parser AExpression
 concatOp = do
@@ -58,26 +64,53 @@ concatOp = do
     a <- aExpression `sepBy` comma
     _ <- symbol "}"
     return $ Concat a
-    
+
+range :: Parser Range
+range = 
+    do  symbol "[" 
+        top <- aExpression 
+        colon 
+        bottom <- aExpression 
+        symbol "]"
+        return $ Range top bottom
+
+selection :: Parser Selection
+selection = try (wrap range RSel) <|> selection'
+
+selection' :: Parser Selection
+selection' =
+    do  symbol "[" 
+        sel <- aExpression 
+        symbol "]"
+        return $ Sel sel
+
 
 data AExpression = Var Identifier [Selection] 
                 | Replication AExpression AExpression
                 | Concat [AExpression]
                 | Number VerilogNumeric 
+                | Str String
                 | Unary UOp AExpression
-                | ABinary AOp AExpression AExpression 
-                | Ternary AExpression AExpression AExpression
+                | ABinary AOp AExpression AExpression
                 deriving (Eq)
 instance Show AExpression where
     show (Var a b) = show a ++ show b
+    show (Concat a) = "Concatenation " ++ show a
+    show (Replication a b) = "Replication " ++ show a ++ " " ++ show b
     show (Number a) = show a
+    show (Str a) = show a
     show (Unary a b) = show a ++ show b
-    show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
-    show (Concat a) = show a
+    show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c 
     
-instance GetIdentifier AExpression where
-    getIdentifier (Var a _) = Just a
-    getIdentifier _ = Nothing
+instance GetIdentifiers AExpression where
+    getIdentifiers (Var a b) = [a] ++ concatMap getIdentifiers b
+    getIdentifiers (Replication a b) = getIdentifiers a ++ getIdentifiers b
+    getIdentifiers (Concat a) = concatMap getIdentifiers a
+    getIdentifiers (Unary a b) = getIdentifiers b
+    getIdentifiers (ABinary a b c) = getIdentifiers b ++ getIdentifiers c
+    getIdentifiers _ = []
+    getIdentifierDeclarations _ = []
+    getIdentifierUtilizations = getIdentifiers
 
 data UOp = RedAnd 
         | RedOr 
@@ -171,10 +204,22 @@ aOperators =
 --literal :: Parser Literal
 --literal = identifier <|> numeric
 numericSize :: Parser String
-numericSize = try $ many digitChar <* char '\''
+numericSize = manyTill digitChar (char '\'')
+
+simpleNumeric :: Parser VerilogNumeric
+simpleNumeric = do
+    a <- some $ oneOf validDec
+    sc
+    let res = createNumber 'd' 32 a False
+    case res of
+        Left a -> fail a
+        Right b -> return b
 
 numeric :: Parser VerilogNumeric
-numeric =
+numeric = try numeric' <|> simpleNumeric
+
+numeric' :: Parser VerilogNumeric
+numeric' =
     do  size <- optional numericSize
         signed <- optional $ char' 's'
         mode <- optional letterChar
@@ -211,24 +256,6 @@ validBin = ['0', '1'] ++ validUnknowns ++ validSeparators
 validSeparators = ['_']
 validUnknowns = ['z', 'Z', 'x', 'X', '?']
 
-range :: Parser Range
-range = 
-    do  symbol "[" 
-        top <- aExpression 
-        colon 
-        bottom <- aExpression 
-        symbol "]"
-        return $ Range top bottom
-
-selection :: Parser Selection
-selection = try (wrap range RSel) <|> selection'
-
-selection' :: Parser Selection
-selection' =
-    do  symbol "[" 
-        sel <- aExpression 
-        symbol "]"
-        return $ Sel sel
 
 numericToInteger :: VerilogNumeric -> Int
 numericToInteger (Hex c a b) = if b && (digitToInt (head a) >= 8) then -1 else 1 * (sum . map (\(x, y) -> 16^x * y) . zip [0..] . reverse . map digitToInt $ filter (/='_') a)
@@ -259,9 +286,21 @@ instance Show Selection where
     show (Sel b) = "[" ++ show b ++ "]"
     show ImplicitSelection = ""
 
+instance GetIdentifiers Selection where
+    getIdentifiers (Sel a) = getIdentifiers a
+    getIdentifiers (RSel a) = getIdentifiers a
+    getIdentifiers _ = []
+
+    getIdentifierUtilizations = getIdentifiers
+    getIdentifierDeclarations _ = []
+
 data Range = Range AExpression AExpression deriving (Eq)
 instance Show Range where
     show (Range a b) = "[" ++ show a ++ ":" ++ show b ++ "]"
+instance GetIdentifiers Range where
+    getIdentifiers (Range a b) = getIdentifiers a ++ getIdentifiers b
+    getIdentifierUtilizations = getIdentifiers
+    getIdentifierDeclarations _ = []
     
 rangeConstant :: (Show a) => a -> a -> Range
 rangeConstant a b = Range (Number (Dec 32 (show a) False)) (Number (Dec 32 (show b) False))

@@ -5,6 +5,7 @@ import System.IO
 import Data.Char
 import Data.Maybe
 import Data.List
+import Data.Either
 import Control.Monad
 import Text.Megaparsec
 import Text.Megaparsec.Expr
@@ -20,25 +21,23 @@ import Parse.Modules
 main :: IO ()
 main = do
     args <- getArgs
-    handle <- openFile (head args) ReadMode
-    contents <- hGetContents handle
-    let parsed = parse parser "hello.v" contents
-    -- let identifiers = filter (\a -> isDecl a || isLocalparam a) . concat
-    -- let uniqueIdentifiers = nub . identifiers
-    -- let conflicts a = identifiers a \\ uniqueIdentifiers a
-    -- let allMatches a = identifiers a `intersect` conflicts a
+    let openRead a = openFile a ReadMode 
+    handles <- mapM openRead args
+    contents <- mapM hGetContents handles
+    --a <- map processFile args
+    let pairs = zip args contents
+    let parsed = uncurry (parse parser)
+    let parses = mapM parsed pairs
     let unreferencedIdentifiers a = declaredIdentifiers a \\ referencedIdentifiers a
     let undeclaredIdentifiers a = nub (referencedIdentifiers a) \\ declaredIdentifiers a
-    case parsed of
-        Left err -> print err
-        Right o -> print o
-    hClose handle
+    _ <- mapM_ print parses
+    print "hello"          
     
-declaredIdentifiers :: [VerilogThing] -> [Maybe Identifier]
-declaredIdentifiers a = map getIdentifier $ filter isDecl a
+declaredIdentifiers :: [VerilogThing] -> [Identifier]
+declaredIdentifiers a = concatMap getIdentifiers $ filter isDecl a
 
-referencedIdentifiers :: [VerilogThing] -> [Maybe Identifier]
-referencedIdentifiers a = map getIdentifier $ filter isStatement a
+referencedIdentifiers :: [VerilogThing] -> [Identifier]
+referencedIdentifiers a = concatMap getIdentifiers $ filter isStatement a
 
 isDecl (VDecl _) = True
 isDecl _ = False
@@ -46,30 +45,61 @@ isDecl _ = False
 isStatement (VStatement _) = True
 isStatement _ = False
 
-parser :: Parser [VerilogThing]
-parser = sc *> many vmod <* eof
+type Recoverable = [Either ParseError VerilogThing] 
+parser :: Parser Recoverable
+parser = sc *> many (withRecovery' vmod) <* eof 
 
-things = try vdecl <|> vstatement
+simplify' a = case parse parser "" a of
+            Left _ -> fail "oops"
+            Right c -> c
+
+simplify a = head $ simplify' a
+
 
 data VerilogThing = VStatement Statement
                     | VDecl Declaration 
-                    | VMod VModule [VerilogThing]
+                    | VMod VModule [RecoverableThing] 
+                    | VPreprocessor
                     deriving (Show, Eq)
-instance GetIdentifier VerilogThing where
-    getIdentifier (VStatement a) = getIdentifier a
-    getIdentifier (VDecl a) = getIdentifier a
-    getIdentifier (VMod a b) = getIdentifier a
+
+
+instance GetIdentifiers VerilogThing where
+    getIdentifiers (VStatement a) = getIdentifiers a
+    getIdentifiers (VDecl a) = getIdentifiers a
+    getIdentifiers (VMod a b) = getIdentifiers a ++ concatMap getIdentifiers (rights b)
+
+    getIdentifierDeclarations (VStatement a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (VDecl a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (VMod a b) = getIdentifierDeclarations a ++ concatMap getIdentifierDeclarations (rights b)
+
+    getIdentifierUtilizations (VStatement a) = getIdentifierUtilizations a
+    getIdentifierUtilizations (VDecl a) = getIdentifierUtilizations a
+    getIdentifierUtilizations (VMod a b) = getIdentifierUtilizations a ++ concatMap getIdentifierUtilizations (rights b)
     
+type RecoverableThing = Either ParseError VerilogThing
+things :: Parser RecoverableThing
+things = withRecovery' (vdecl <|> vstatement <|> vpreprocessor)
+
+unrecoverableThings :: Parser VerilogThing
+unrecoverableThings = vdecl <|> vstatement <|> vpreprocessor
+
+vmod :: Parser VerilogThing
 vmod = 
     do
+    _ <- sc
     a <- parseModule
-    b <- many things
-    _ <- rword "endmodule"
+    b <- manyTill things (rword "endmodule") 
+    _ <- sc
     return $ VMod a b
+    
 vdecl = wrap declaration VDecl
-vstatement = wrap statement VStatement
---vmod = wrap parseModule VMod
+vstatement = wrap statement VStatement 
 
+vpreprocessor =
+    do
+        _ <- symbol "`"
+        _ <- manyTill anyChar eol
+        return VPreprocessor
   
 
 commaSepStatements :: String -> Parser a -> Parser [a]

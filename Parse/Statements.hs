@@ -18,11 +18,13 @@ import Parse.Declarations
 data CaseType = Default | X | Z deriving (Eq, Show)
 data Sensitivity = Posedge Identifier | Negedge Identifier | Level Identifier | Wildcard deriving (Eq, Show)
 
-instance GetIdentifier Sensitivity where
-    getIdentifier (Posedge a) = Just a
-    getIdentifier (Negedge a) = Just a
-    getIdentifier (Level a) = Just a
-    getIdentifier _ = Nothing
+instance GetIdentifiers Sensitivity where
+    getIdentifiers (Posedge a) = [a]
+    getIdentifiers (Negedge a) = [a]
+    getIdentifiers (Level a) = [a]
+    getIdentifiers _ = []
+    getIdentifierUtilizations = getIdentifiers
+    getIdentifierDeclarations _ = []
     
 data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | SequentialAssign Identifier [Selection] AExpression
@@ -37,12 +39,54 @@ data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | ModuleInstantiation Identifier (Maybe Identifier) [Connection]
                 deriving (Eq, Show)
 
-instance GetIdentifier Statement where
-    getIdentifier (ConcurrentAssign a _ _) = Just a
-    getIdentifier (SequentialAssign a _ _) = Just a
-    getIdentifier _ = Nothing
+instance GetIdentifiers Statement where
+    getIdentifiers (ConcurrentAssign a b c) = [a] ++ concatMap getIdentifiers b ++ getIdentifiers c
+    getIdentifiers (SequentialAssign a b c) = [a] ++ concatMap getIdentifiers b ++ getIdentifiers c
+    getIdentifiers (Process a b) = concatMap getIdentifiers a ++ getIdentifiers b
+    getIdentifiers (Begin (Just a) b) = [a] ++ concatMap getIdentifiers b
+    getIdentifiers (Begin (Nothing) b) = concatMap getIdentifiers b
+    getIdentifiers (If a b (Just c)) = getIdentifiers a ++ getIdentifiers b ++ getIdentifiers c
+    getIdentifiers (If a b (Nothing)) = getIdentifiers a ++ getIdentifiers b
+    getIdentifiers (CaseSet _ a b) = getIdentifiers a ++ concatMap getIdentifiers b
+    getIdentifiers (Case a b) = getIdentifiers a ++ getIdentifiers b
+    getIdentifiers (Forloop a b c d) = getIdentifiers a ++ getIdentifiers b ++ getIdentifiers c ++ getIdentifiers d
+    getIdentifiers (Generate a) = getIdentifiers a
+    getIdentifiers (Decl a) = getIdentifiers a -- this may be a very bad idea
+    getIdentifiers (ModuleInstantiation a (Just b) c) = [a, b] ++ concatMap getIdentifiers c
+    getIdentifiers (ModuleInstantiation a (Nothing) c) = [a] ++ concatMap getIdentifiers c
+
+    getIdentifierDeclarations (Process _ a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (Begin (Just a) b) = [a] ++ concatMap getIdentifierDeclarations b
+    getIdentifierDeclarations (Begin (Nothing) b) = concatMap getIdentifierDeclarations b
+    getIdentifierDeclarations (If a b (Just c)) = getIdentifierDeclarations b ++ getIdentifierDeclarations c
+    getIdentifierDeclarations (If a b (Nothing)) = getIdentifierDeclarations b
+    getIdentifierDeclarations (CaseSet _ _ a) = concatMap getIdentifierDeclarations a
+    getIdentifierDeclarations (Case _ a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (Forloop _ _ _ a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (Generate a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (Decl a) = getIdentifierDeclarations a
+    getIdentifierDeclarations (ModuleInstantiation _ (Just b) _) =  [b]
+    getIdentifierDeclarations _ = []
+
+    getIdentifierUtilizations (ConcurrentAssign a b c) = [a] ++ concatMap getIdentifierUtilizations b ++ getIdentifierUtilizations c
+    getIdentifierUtilizations (SequentialAssign a b c) = [a] ++ concatMap getIdentifierUtilizations b ++ getIdentifierUtilizations c
+    getIdentifierUtilizations (Process a b) = concatMap getIdentifierUtilizations a ++ getIdentifierUtilizations b
+    getIdentifierUtilizations (Begin _ a) = concatMap getIdentifierUtilizations a
+    getIdentifierUtilizations (If a b (Just c)) = getIdentifierUtilizations a ++ getIdentifierUtilizations b ++ getIdentifierUtilizations c
+    getIdentifierUtilizations (If a b (Nothing)) = getIdentifierUtilizations a ++ getIdentifierUtilizations b
+    getIdentifierUtilizations (CaseSet _ a b) = getIdentifierUtilizations a ++ concatMap getIdentifierUtilizations b
+    getIdentifierUtilizations (Case a b) = getIdentifierUtilizations a ++ getIdentifierUtilizations b
+    getIdentifierUtilizations (Forloop a b c d) = getIdentifierUtilizations a ++ getIdentifierUtilizations b ++ getIdentifierUtilizations c ++ getIdentifierUtilizations d
+    getIdentifierUtilizations (Generate a) = getIdentifierUtilizations a
+    getIdentifierUtilizations (Decl a) = getIdentifierUtilizations a
+    getIdentifierUtilizations (ModuleInstantiation a _ b) = [a] ++ concatMap getIdentifierUtilizations b
 
 data Connection = Conn Identifier (Maybe AExpression) deriving (Eq, Show)
+instance GetIdentifiers Connection where
+    getIdentifiers (Conn a (Just b)) = [a] ++ getIdentifiers b
+    getIdentifiers (Conn a (Nothing)) = [a] 
+    getIdentifierDeclarations _ = []
+    getIdentifierUtilizations = getIdentifiers
 
 connection :: Parser Connection
 connection = do
@@ -113,16 +157,13 @@ process = do
     _ <- at
     sensitivity <- parens sensitivityList
     contents <- statement
-    return $ Process sensitivity contents
-
-hello = between (rword "begin") (rword "end")
+    return $ Process sensitivity contents 
 
 begin :: Parser Statement
 begin = do
     _ <- rword "begin"
     name <- optional (colon *> identifier)
-    statements <- try $ many statement
-    _ <- rword "end"
+    statements <- try $ manyTill statement (rword "end")
     return $ Begin name statements
 
 
@@ -131,9 +172,9 @@ forStatement = do
     _ <- rword "for"
     _ <- symbol "("
     initial <- aExpression
-    semicolon
+    _ <- semicolon
     check <- aExpression
-    semicolon
+    _ <- semicolon
     iterator <- aExpression
     _ <- symbol ")"
     content <- statement
@@ -150,9 +191,8 @@ ifStatement = do
 beginCase :: Parser Statement
 beginCase = do
     caseType <- caseStart
-    condition <- parens aExpression
-    contents <- many statement
-    _ <- rword "endcase"
+    condition <- aExpression
+    contents <- manyTill caseItem (rword "endcase")
     return $ CaseSet caseType condition contents
     
 caseItem :: Parser Statement
