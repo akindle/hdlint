@@ -13,6 +13,7 @@ import qualified Text.Megaparsec.Lexer as L
 
 import Parse.Basics
 import Parse.Expressions
+import Parse.Declarations
 
 data CaseType = Default | X | Z deriving (Eq, Show)
 data Sensitivity = Posedge Identifier | Negedge Identifier | Level Identifier | Wildcard deriving (Eq, Show)
@@ -26,17 +27,41 @@ instance GetIdentifier Sensitivity where
 data Statement = ConcurrentAssign Identifier [Selection] AExpression
                 | SequentialAssign Identifier [Selection] AExpression
                 | Process [Sensitivity] Statement
-                | Begin [Statement]
+                | Begin (Maybe Identifier) [Statement]
                 | If {condition :: AExpression, true :: Statement, false :: Maybe Statement} -- else/else if -> via false
                 | CaseSet CaseType AExpression [Statement]
                 | Case AExpression Statement
                 | Forloop AExpression AExpression AExpression Statement
+                | Generate Statement 
+                | Decl Declaration -- yolo
+                | ModuleInstantiation Identifier (Maybe Identifier) [Connection]
                 deriving (Eq, Show)
-                
+
 instance GetIdentifier Statement where
     getIdentifier (ConcurrentAssign a _ _) = Just a
     getIdentifier (SequentialAssign a _ _) = Just a
     getIdentifier _ = Nothing
+
+data Connection = Conn Identifier (Maybe AExpression) deriving (Eq, Show)
+
+connection :: Parser Connection
+connection = do
+    _ <- symbol "."
+    a <- identifier
+    _ <- symbol "("
+    b <- optional aExpression
+    _ <- symbol ")"
+    return $ Conn a b
+                
+moduleInst :: Parser Statement
+moduleInst = do
+    instantiatedModule <- identifier
+    instanceName <- optional identifier
+    _ <- symbol "("
+    connections <- connection `sepBy` comma
+    _ <- symbol ")"
+    _ <- semicolon
+    return $ ModuleInstantiation instantiatedModule instanceName connections
     
 statement :: Parser Statement
 statement =      process 
@@ -45,9 +70,19 @@ statement =      process
             <|>  try continuousAssign
             <|>  try concurrentAssign 
             <|>  try sequentialAssign 
+            <|>  try moduleInst
             <|>  forStatement
             <|>  beginCase 
             <|>  try caseItem    
+            <|>  generate
+            <|>  wrap declaration Decl
+
+generate :: Parser Statement
+generate = do
+    _ <- rword "generate"
+    a <- statement
+    _ <- rword "endgenerate"
+    return $ Generate a
 
 continuousAssign :: Parser Statement
 continuousAssign = do
@@ -85,9 +120,11 @@ hello = between (rword "begin") (rword "end")
 begin :: Parser Statement
 begin = do
     _ <- rword "begin"
+    name <- optional (colon *> identifier)
     statements <- try $ many statement
     _ <- rword "end"
-    return $ Begin statements
+    return $ Begin name statements
+
 
 forStatement :: Parser Statement
 forStatement = do
@@ -113,8 +150,7 @@ ifStatement = do
 beginCase :: Parser Statement
 beginCase = do
     caseType <- caseStart
-    condition <- aExpression
-    _ <- rword "begin"
+    condition <- parens aExpression
     contents <- many statement
     _ <- rword "endcase"
     return $ CaseSet caseType condition contents
@@ -127,9 +163,9 @@ caseItem = do
     return $ Case caseName content
 
 caseStart :: Parser CaseType
-caseStart = (rword "case" >> return Default)
-            <|> (rword "casex" >> return X) 
-            <|> (rword "casez" >> return Z)
+caseStart = try (rword "case" >> return Default)
+            <|> try (rword "casex" >> return X) 
+            <|> try (rword "casez" >> return Z)
 
 sensitivityList :: Parser [Sensitivity]
 sensitivityList = sensitivity `sepBy` rword "or"

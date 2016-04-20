@@ -33,6 +33,7 @@ data Declaration = Localparam Identifier AExpression
                 | Reg Identifier [Range] Direction
                 | Wire Identifier [Range] Direction
                 | Collection [Declaration]
+                | Genvar Identifier
                 deriving (Show, Eq)
                 
 instance GetIdentifier Declaration where
@@ -50,6 +51,7 @@ declaration = try localparam
             <|> try (portLike "wire" Wire)
             <|> try (portLike "reg" Reg)
             <|> try integer
+            <|> try genvar
             
 localparam :: Parser Declaration
 localparam = paramList "localparam" Localparam
@@ -119,6 +121,13 @@ portLike a b =
     let dirResult = fromMaybe Internal dir
     return $ b name rangeList dirResult
     
+genvar :: Parser Declaration
+genvar = do
+    _ <- rword "genvar"
+    name <- identifier
+    _ <- semicolon
+    return $ Genvar name
+
     -- we're going to treat integers as syntactic sugar for 32-bit registers
 integer :: Parser Declaration
 integer = do

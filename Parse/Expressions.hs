@@ -44,17 +44,25 @@ replication = do
 aTerm :: Parser AExpression
 aTerm = parens aExpression
         <|> Var     <$> identifier <*> sel
+        <|> Concat  <$> angles (aExpression `sepBy` comma)
         <|> replication
-        <|> Concat  <$> angles aExpression <* comma *> aExpression
         <|> Number  <$> numeric
         <|> Ternary <$> aExpression <* symbol "?" *> aExpression <* colon *> aExpression
         where sel =
                 do a <- many selection
                    return a
 
+concatOp :: Parser AExpression
+concatOp = do
+    _ <- symbol "{"
+    a <- aExpression `sepBy` comma
+    _ <- symbol "}"
+    return $ Concat a
+    
+
 data AExpression = Var Identifier [Selection] 
                 | Replication AExpression AExpression
-                | Concat AExpression AExpression
+                | Concat [AExpression]
                 | Number VerilogNumeric 
                 | Unary UOp AExpression
                 | ABinary AOp AExpression AExpression 
@@ -65,6 +73,7 @@ instance Show AExpression where
     show (Number a) = show a
     show (Unary a b) = show a ++ show b
     show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
+    show (Concat a) = show a
     
 instance GetIdentifier AExpression where
     getIdentifier (Var a _) = Just a
