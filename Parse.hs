@@ -1,4 +1,4 @@
-module Parse where
+module Main where
 
 import System.Environment
 import System.IO
@@ -19,7 +19,8 @@ import Parse.Modules
  
 main :: IO ()
 main = do
-    handle <- openFile "hello2.v" ReadMode
+    args <- getArgs
+    handle <- openFile (head args) ReadMode
     contents <- hGetContents handle
     let parsed = parse parser "hello.v" contents
     -- let identifiers = filter (\a -> isDecl a || isLocalparam a) . concat
