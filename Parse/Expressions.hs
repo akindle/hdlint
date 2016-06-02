@@ -26,8 +26,8 @@ import Parse.Basics
     -- basically just read the above link a lot while implementing and also some other sources
             
 
-aExpression :: Parser AExpression
-aExpression = makeExprParser aTerm aOperators <?> "expression"
+aExpression' :: Parser AExpression
+aExpression' = makeExprParser aTerm aOperators <?> "expression"
 
 -- note: this probably does not work
 -- because this is not really how the angle brackets in a replication work
@@ -39,15 +39,32 @@ replication = do
     repExpr <- aExpression
     symbol "}"
     return $ Replication repCount repExpr
+
+aExpression :: Parser AExpression
+aExpression = do
+    a <- aExpression'
+    b <- optional ternary
+    let c = maybe a (TernaryC a ) b
+    return c
+    
                 
 aTerm :: Parser AExpression
 aTerm = parens aExpression
+        <|> ternary
         <|> Str <$> quotes (many $ noneOf "\"")
         <|> Var <$> identifier <*> sel
         <|> try vconcat
         <|> Number  <$> numeric 
         where sel =
                 do many selection 
+                
+ternary :: Parser AExpression
+ternary = do
+    _ <- symbol "?"
+    a <- aExpression
+    _ <- symbol ":"
+    b <- aExpression
+    return $ Ternary a b
                    
 vconcat :: Parser AExpression
 vconcat = do
@@ -92,6 +109,8 @@ data AExpression = Var Identifier [Selection]
                 | Str String
                 | Unary UOp AExpression
                 | ABinary AOp AExpression AExpression
+                | TernaryC AExpression AExpression 
+                | Ternary AExpression AExpression
                 deriving (Eq)
 instance Show AExpression where
     show (Var a b) = show a ++ show b
@@ -100,7 +119,9 @@ instance Show AExpression where
     show (Number a) = show a
     show (Str a) = show a
     show (Unary a b) = show a ++ show b
-    show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c 
+    show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
+    show (TernaryC a b) = "Ternary Condition " ++ show a ++ " ? " ++ show b 
+    show (Ternary a b) = "Ternary " ++ show a ++ " : " ++ show b
     
 instance GetIdentifiers AExpression where
     getIdentifiers (Var a b) = [a] ++ concatMap getIdentifiers b
