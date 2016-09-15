@@ -96,4 +96,4 @@ rword :: String -> Parser ()
 rword w = string w *> notFollowedBy idChar *> sc
 
 reservedWords :: [String]
-reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always", "module", "endmodule", "input", "output", "inout", "wire", "reg", "integer", "assign"]
+reservedWords = ["localparam", "param", "parameter", "begin", "if", "else", "end", "always", "module", "endmodule", "input", "output", "inout", "wire", "reg", "integer", "assign", "default"]

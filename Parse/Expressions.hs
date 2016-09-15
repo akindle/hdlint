@@ -111,6 +111,7 @@ data AExpression = Var Identifier [Selection]
                 | ABinary AOp AExpression AExpression
                 | TernaryC AExpression AExpression 
                 | Ternary AExpression AExpression
+                | Default
                 deriving (Eq)
 instance Show AExpression where
     show (Var a b) = show a ++ show b
@@ -122,6 +123,7 @@ instance Show AExpression where
     show (ABinary a b c) = show b ++ " " ++ show a ++ " " ++ show c
     show (TernaryC a b) = "Ternary Condition " ++ show a ++ " ? " ++ show b 
     show (Ternary a b) = "Ternary " ++ show a ++ " : " ++ show b
+    show (Default) = "default"
     
 instance GetIdentifiers AExpression where
     getIdentifiers (Var a b) = [a] ++ concatMap getIdentifiers b

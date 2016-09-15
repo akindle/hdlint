@@ -15,7 +15,7 @@ import Parse.Basics
 import Parse.Expressions
 import Parse.Declarations
 
-data CaseType = Default | X | Z deriving (Eq, Show)
+data CaseType = Exact | X | Z deriving (Eq, Show)
 data Sensitivity = Posedge Identifier | Negedge Identifier | Level Identifier | Wildcard deriving (Eq, Show)
 
 instance GetIdentifiers Sensitivity where
@@ -197,13 +197,14 @@ beginCase = do
     
 caseItem :: Parser Statement
 caseItem = do
-    caseName <- aExpression
+    caseName <- (aExpression <|> (rword "default" >> return Default))
     _ <- colon
     content <- statement
     return $ Case caseName content
 
+
 caseStart :: Parser CaseType
-caseStart = try (rword "case" >> return Default)
+caseStart = try (rword "case" >> return Exact)
             <|> try (rword "casex" >> return X) 
             <|> try (rword "casez" >> return Z)
 

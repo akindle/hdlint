@@ -24,20 +24,26 @@ main = do
     let openRead a = openFile a ReadMode 
     handles <- mapM openRead args
     contents <- mapM hGetContents handles
-    --a <- map processFile args
-    let pairs = zip args contents
-    let parsed = uncurry (parse parser)
-    let parses = mapM parsed pairs
+    let parses = processFiles args contents
     let unreferencedIdentifiers a = declaredIdentifiers a \\ referencedIdentifiers a
     let undeclaredIdentifiers a = nub (referencedIdentifiers a) \\ declaredIdentifiers a
-    _ <- mapM_ print parses
-    print "hello"          
+    let good = concatMap rights $ rights parses
+    --_ <- mapM_ print parses
+    print "Declared identifiers that are never used (probably warnings):"
+    _ <- mapM_ print (unreferencedIdentifiers good)
+    print "-------------------------"
+    print "Referenced identifiers that are never declared (probably errors):"
+    _ <- mapM_ print (undeclaredIdentifiers good)
+    return ()
+
+processFiles :: [String] -> [String] -> [Either ParseError Recoverable]
+processFiles a c = map (uncurry (parse parser)) $ zip a c
     
 declaredIdentifiers :: [VerilogThing] -> [Identifier]
-declaredIdentifiers a = concatMap getIdentifiers $ filter isDecl a
+declaredIdentifiers a = concatMap getIdentifierDeclarations a
 
 referencedIdentifiers :: [VerilogThing] -> [Identifier]
-referencedIdentifiers a = concatMap getIdentifiers $ filter isStatement a
+referencedIdentifiers a = concatMap getIdentifierUtilizations a
 
 isDecl (VDecl _) = True
 isDecl _ = False
