@@ -130,6 +130,8 @@ instance GetIdentifiers AExpression where
     getIdentifiers (Replication a b) = getIdentifiers a ++ getIdentifiers b
     getIdentifiers (Concat a) = concatMap getIdentifiers a
     getIdentifiers (Unary a b) = getIdentifiers b
+    getIdentifiers (Ternary a b) = getIdentifiers a ++ getIdentifiers b
+    getIdentifiers (TernaryC a b) = getIdentifiers a ++ getIdentifiers b
     getIdentifiers (ABinary a b c) = getIdentifiers b ++ getIdentifiers c
     getIdentifiers _ = []
     getIdentifierDeclarations _ = []

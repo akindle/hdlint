@@ -65,7 +65,8 @@ instance GetIdentifiers Statement where
     getIdentifierDeclarations (Forloop _ _ _ a) = getIdentifierDeclarations a
     getIdentifierDeclarations (Generate a) = getIdentifierDeclarations a
     getIdentifierDeclarations (Decl a) = getIdentifierDeclarations a
-    getIdentifierDeclarations (ModuleInstantiation _ (Just b) _) =  [b]
+    getIdentifierDeclarations (ModuleInstantiation _ (Just b) c) =  [b] ++ concatMap getIdentifierUtilizations c
+    getIdentifierDeclarations (ModuleInstantiation _ (Nothing) c) =  concatMap getIdentifierUtilizations c
     getIdentifierDeclarations _ = []
 
     getIdentifierUtilizations (ConcurrentAssign a b c) = [a] ++ concatMap getIdentifierUtilizations b ++ getIdentifierUtilizations c
@@ -79,14 +80,18 @@ instance GetIdentifiers Statement where
     getIdentifierUtilizations (Forloop a b c d) = getIdentifierUtilizations a ++ getIdentifierUtilizations b ++ getIdentifierUtilizations c ++ getIdentifierUtilizations d
     getIdentifierUtilizations (Generate a) = getIdentifierUtilizations a
     getIdentifierUtilizations (Decl a) = getIdentifierUtilizations a
-    getIdentifierUtilizations (ModuleInstantiation a _ b) = [a] ++ concatMap getIdentifierUtilizations b
+    getIdentifierUtilizations (ModuleInstantiation a _ b) = concatMap getIdentifierUtilizations b
 
 data Connection = Conn Identifier (Maybe AExpression) deriving (Eq, Show)
 instance GetIdentifiers Connection where
     getIdentifiers (Conn a (Just b)) = [a] ++ getIdentifiers b
     getIdentifiers (Conn a (Nothing)) = [a] 
-    getIdentifierDeclarations _ = []
-    getIdentifierUtilizations = getIdentifiers
+
+    getIdentifierDeclarations (Conn _ (Just b)) = getIdentifiers b
+    getIdentifierDeclarations (Conn _ Nothing) = []
+
+    getIdentifierUtilizations (Conn a (Just b)) = getIdentifiers b
+    getIdentifierUtilizations (Conn a (Nothing)) = []
 
 connection :: Parser Connection
 connection = do

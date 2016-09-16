@@ -2,6 +2,7 @@ module Main where
 
 import System.Environment
 import System.IO
+import System.Console.ANSI
 import Data.Char
 import Data.Maybe
 import Data.List
@@ -25,16 +26,38 @@ main = do
     handles <- mapM openRead args
     contents <- mapM hGetContents handles
     let parses = processFiles args contents
-    let unreferencedIdentifiers a = declaredIdentifiers a \\ referencedIdentifiers a
-    let undeclaredIdentifiers a = nub (referencedIdentifiers a) \\ declaredIdentifiers a
+    let unreferencedIdentifiers a = nub (declaredIdentifiers a) \\ nub (referencedIdentifiers a)
+    let undeclaredIdentifiers a = nub (referencedIdentifiers a) \\ nub (declaredIdentifiers a)
     let good = concatMap rights $ rights parses
-    --_ <- mapM_ print parses
-    print "Declared identifiers that are never used (probably warnings):"
-    _ <- mapM_ print (unreferencedIdentifiers good)
-    print "-------------------------"
-    print "Referenced identifiers that are never declared (probably errors):"
-    _ <- mapM_ print (undeclaredIdentifiers good)
+    let bad = lefts parses ++ (concatMap lefts $ rights parses)
+
+    infoPrint "Declared identifiers that are never used (probably warnings):"
+    _ <- mapM_ warnPrint (map show $ unreferencedIdentifiers good)
+    infoPrint "-------------------------"
+    infoPrint "Referenced identifiers that are never declared (probably errors):"
+    _ <- mapM_ errorPrint (map show $ undeclaredIdentifiers good)
+    infoPrint "-------------------------"
+    infoPrint "Parse Errors"
+    _ <- mapM_ errorPrint $ map show bad
     return ()
+
+infoPrint a = do
+    _ <- setSGR [SetColor Foreground Dull White]
+    _ <- putStrLn a
+    clearToPs
+
+errorPrint a = do
+    _ <- setSGR [SetColor Foreground Vivid Red]
+    _ <- putStrLn a
+    clearToPs
+
+warnPrint a = do
+    _ <- setSGR [SetColor Foreground Vivid Yellow]
+    _ <- putStrLn a
+    clearToPs
+
+clearToPs = do
+    setSGR [Reset]
 
 processFiles :: [String] -> [String] -> [Either ParseError Recoverable]
 processFiles a c = map (uncurry (parse parser)) $ zip a c
