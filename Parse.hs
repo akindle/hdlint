@@ -116,6 +116,8 @@ vmod :: Parser VerilogThing
 vmod = 
     do
     _ <- sc
+    _ <- many vpreprocessor
+    _ <- sc
     a <- parseModule
     b <- manyTill things (rword "endmodule") 
     _ <- sc
